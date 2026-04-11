@@ -1,0 +1,2931 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hamster</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0d0804; overflow: hidden; width: 100vw; height: 100vh; font-family: 'Palatino Linotype', Palatino, serif; }
+    #canvas-container { position: fixed; inset: 0; }
+    #ui-overlay { position: fixed; inset: 0; pointer-events: none; }
+
+    #food-tray {
+      position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+      pointer-events: auto; display: none; z-index: 100;
+    }
+    #food-item {
+      width: 68px; height: 68px;
+      background: rgba(30,18,6,0.88);
+      border: 2px solid #8B7355; border-radius: 50%;
+      cursor: grab; display: flex; align-items: center; justify-content: center;
+      font-size: 34px; user-select: none; touch-action: none;
+      transition: transform 0.15s;
+    }
+    #food-item:hover { transform: scale(1.08); }
+    #food-item:active { cursor: grabbing; }
+
+    /* ── Bin (item disposal) ── */
+    #bin-zone {
+      position: fixed; bottom: 32px; right: 82px;
+      width: 44px; height: 44px; margin: 5px 0;
+      background: rgba(16,8,4,0.75);
+      border: 1px solid #4a3020; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; cursor: default;
+      pointer-events: auto; z-index: 100;
+      transition: background 0.18s, border-color 0.18s, transform 0.18s, bottom 0.2s ease;
+      user-select: none;
+    }
+    #bin-zone.bin-live  { border-color: #7a5030; cursor: crosshair; }
+    #bin-zone.bin-hover { background: rgba(100,30,10,0.85); border-color: #cc4422; transform: scale(1.15); }
+    body.console-open #bin-zone,
+    body.console-open #food-pile { bottom: 220px; }
+
+    /* ── Always-visible food pile ── */
+    #food-pile {
+      position: fixed; bottom: 32px; right: 16px;
+      pointer-events: auto; z-index: 100;
+      transition: bottom 0.2s ease;
+    }
+    #food-pile-icon {
+      width: 54px; height: 54px;
+      background: rgba(20,12,4,0.80);
+      border: 1px solid #6a5038; border-radius: 50%;
+      cursor: grab; display: flex; align-items: center; justify-content: center;
+      font-size: 28px; user-select: none; touch-action: none;
+      transition: transform 0.12s, opacity 0.3s;
+    }
+    #food-pile-icon:hover { transform: scale(1.12); }
+    #food-pile-icon:active { cursor: grabbing; transform: scale(0.96); }
+    #food-pile-icon.unavailable { opacity: 0.28; cursor: not-allowed; }
+
+    #status-dot {
+      position: fixed; bottom: 10px; left: 18px;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #3a2a1a; pointer-events: none;
+      transition: background 0.5s;
+    }
+
+    /* ── Dev Console ── */
+    #dev-console {
+      position: fixed; bottom: 0; left: 0; right: 0; height: 210px;
+      background: rgba(5,5,5,0.92); border-top: 1px solid #333;
+      display: none; flex-direction: column; z-index: 9999;
+      font-family: 'Courier New', monospace; font-size: 12px;
+      pointer-events: auto;
+    }
+    #dev-console.open { display: flex; }
+    #dev-output {
+      flex: 1; overflow-y: auto; padding: 6px 10px;
+      white-space: pre-wrap; line-height: 1.5;
+    }
+    #dev-output .err  { color: #ff6666; }
+    #dev-output .ok   { color: #66ff88; }
+    #dev-output .info { color: #aaaaff; }
+    #dev-output .cmd  { color: #88ff88; }
+    #dev-output .muted{ color: #666666; }
+    #dev-input-row {
+      display: flex; align-items: center;
+      border-top: 1px solid #2a2a2a; padding: 5px 10px; flex-shrink: 0;
+    }
+    #dev-prompt { color: #55cc55; margin-right: 6px; user-select: none; }
+    #dev-input {
+      flex: 1; background: transparent; border: none; outline: none;
+      color: #ccffcc; font-family: inherit; font-size: 12px; caret-color: #55cc55;
+    }
+    #dev-toggle-hint {
+      position: fixed; bottom: 14px; left: 16px;
+      color: #333; font-size: 10px; font-family: monospace;
+      pointer-events: none; user-select: none;
+    }
+
+    /* ── Name Prompt ── */
+    #name-prompt {
+      position: fixed; inset: 0;
+      background: rgba(5,3,1,0.92);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 500;
+    }
+    #name-prompt.hidden { display: none; }
+    #name-prompt-box {
+      background: rgba(18,10,3,0.98); border: 1px solid #7a6040;
+      padding: 38px 48px; text-align: center; max-width: 360px; width: 90%;
+    }
+    #name-prompt-box p { color: #c8b898; font-size: 15px; line-height: 1.7; margin-bottom: 26px; }
+    #name-input {
+      width: 100%; background: transparent;
+      border: none; border-bottom: 1px solid #7a6040;
+      color: #e8d8b8; font-family: 'Palatino Linotype', Palatino, serif;
+      font-size: 18px; padding: 6px 4px; margin-bottom: 26px;
+      outline: none; text-align: center;
+    }
+    #name-submit {
+      background: transparent; border: 1px solid #7a6040; color: #c8b898;
+      font-family: 'Palatino Linotype', Palatino, serif; font-size: 14px;
+      padding: 9px 28px; cursor: pointer; letter-spacing: 0.06em;
+    }
+    #name-submit:hover { background: rgba(122,96,64,0.18); }
+
+    /* ── Settings Menu ── */
+    #menu-btn {
+      position: fixed; top: 14px; right: 16px;
+      background: transparent; border: none; color: #3a2810;
+      font-size: 17px; cursor: pointer; z-index: 100;
+      pointer-events: auto; padding: 3px; line-height: 1;
+      transition: color 0.2s;
+    }
+    #menu-btn:hover { color: #8a6840; }
+    #menu-panel {
+      position: fixed; inset: 0;
+      background: rgba(5,3,1,0.88);
+      display: none; align-items: center; justify-content: center;
+      z-index: 400;
+    }
+    #menu-panel.open { display: flex; }
+    #menu-inner {
+      background: rgba(18,10,3,0.98); border: 1px solid #7a6040;
+      padding: 32px 40px; min-width: 280px; max-width: 340px; width: 90%;
+    }
+    #menu-inner h3 {
+      color: #7a6040; font-size: 11px; letter-spacing: 0.14em;
+      text-transform: uppercase; margin-bottom: 26px; font-weight: normal;
+    }
+    .menu-section { margin-bottom: 22px; }
+    .menu-section label {
+      display: block; color: #5a4428; font-size: 10px;
+      letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px;
+    }
+    .menu-row { display: flex; gap: 8px; align-items: flex-end; }
+    #menu-name-input {
+      flex: 1; background: transparent; border: none;
+      border-bottom: 1px solid #5a4030; color: #e8d8b8;
+      font-family: 'Palatino Linotype', Palatino, serif;
+      font-size: 15px; padding: 4px 2px; outline: none;
+    }
+    #menu-food {
+      width: 100%; background: rgba(10,6,2,0.95); border: 1px solid #5a4030;
+      color: #c8b898; font-family: 'Palatino Linotype', Palatino, serif;
+      font-size: 14px; padding: 7px 8px; outline: none; cursor: pointer;
+    }
+    #menu-food option { background: #120802; }
+    .menu-btn-row { display: flex; gap: 10px; margin-top: 6px; }
+    .menu-action-btn {
+      background: transparent; border: 1px solid #5a4030; color: #b89870;
+      font-family: 'Palatino Linotype', Palatino, serif; font-size: 13px;
+      padding: 7px 18px; cursor: pointer; letter-spacing: 0.04em;
+    }
+    .menu-action-btn:hover { background: rgba(90,64,48,0.22); }
+  </style>
+</head>
+<body>
+  <div id="canvas-container"></div>
+  <div id="ui-overlay">
+    <div id="food-tray"><div id="food-item"></div></div>
+    <div id="bin-zone" title="Drop here to discard">🗑</div>
+    <div id="food-pile"><div id="food-pile-icon"></div></div>
+    <div id="status-dot"></div>
+  </div>
+
+  <button id="menu-btn" title="Settings">⚙</button>
+  <div id="menu-panel">
+    <div id="menu-inner">
+      <h3>Settings</h3>
+      <div class="menu-section">
+        <label>Your name</label>
+        <div class="menu-row">
+          <input id="menu-name-input" type="text" maxlength="32" autocomplete="off" spellcheck="false">
+          <button class="menu-action-btn" id="menu-name-save">Save</button>
+        </div>
+      </div>
+      <div class="menu-section">
+        <label>Food offering</label>
+        <select id="menu-food">
+          <option value="sunflower seeds">🌻  sunflower seeds</option>
+          <option value="millet">🌾  millet</option>
+          <option value="dried cranberries">🍒  dried cranberries</option>
+          <option value="a small walnut">🌰  a small walnut</option>
+          <option value="pellets of uncertain origin">⬛  pellets of uncertain origin</option>
+        </select>
+      </div>
+      <div class="menu-btn-row">
+        <button class="menu-action-btn" id="menu-close">Close</button>
+        <button class="menu-action-btn" id="menu-clear" style="color:#885544;margin-left:auto">Reset data…</button>
+      </div>
+      <div id="menu-clear-confirm" style="display:none;margin-top:18px;border-top:1px solid #3a2010;padding-top:16px">
+        <p style="color:#7a4030;font-size:12px;letter-spacing:0.06em;margin-bottom:12px;text-align:center">All data will be erased. Are you certain?</p>
+        <div style="display:flex;gap:8px;justify-content:center">
+          <button class="menu-action-btn" id="menu-clear-yes" style="color:#cc4422">Yes, reset</button>
+          <button class="menu-action-btn" id="menu-clear-no">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="name-prompt" class="hidden">
+    <div id="name-prompt-box">
+      <p>The hamster requires your name.</p>
+      <input id="name-input" type="text" maxlength="32" placeholder="your name"
+             autocomplete="off" spellcheck="false">
+      <br>
+      <button id="name-submit">Proceed</button>
+    </div>
+  </div>
+
+  <div id="dev-console">
+    <div id="dev-output"></div>
+    <div id="dev-input-row">
+      <span id="dev-prompt">hamster&gt;&nbsp;</span>
+      <input id="dev-input" type="text" autocomplete="off" spellcheck="false" placeholder="type help">
+    </div>
+  </div>
+  <div id="dev-toggle-hint">` — dev console</div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+  <script>
+  'use strict';
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 1 — Constants
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // TIME_SCALE: 1 = real time (hunger every ~12 real hours).
+  // Set to e.g. 720 to test (1 real second = 12 game minutes → hunger in ~60s).
+  let TIME_SCALE = 1;
+
+  // ── Pace system ──────────────────────────────────────────────────────────────
+  // paceConsole: manually set from dev console, normally 1.0
+  // paceAuto:    automatic boost (e.g. on state restore), decays from initial → 1.0 over time
+  // Effective scheduler speed = TIME_SCALE * paceConsole * paceAuto
+  let paceConsole       = 1.0;
+  let _paceAutoInitial  = 1.0;    // 1.0 = no boost; returning users start at 4.0
+  let _paceAutoStart    = 0;      // Date.now() when auto-pace began
+  const PACE_AUTO_DECAY = 3600;   // real seconds to decay from initial → 1.0
+
+  function paceAuto() {
+    const elapsed = (Date.now() - _paceAutoStart) / 1000;
+    const t = Math.max(0, 1 - elapsed / PACE_AUTO_DECAY);
+    return 1.0 + (_paceAutoInitial - 1.0) * t;  // lerp from initial → 1.0
+  }
+  function pace() { return paceConsole * paceAuto(); }
+
+  // ── Uptime tracking ──────────────────────────────────────────────────────────
+  const _sessionStart = Date.now();
+  let   _savedUptimeSec = 0;   // loaded from localStorage; updated periodically
+
+  function sessionSec()  { return (Date.now() - _sessionStart) / 1000; }
+  function totalSec()    { return _savedUptimeSec + sessionSec(); }
+
+  function _fmtTime(sec) {
+    sec = Math.floor(sec);
+    const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600),
+          m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    return `${m}m ${s}s`;
+  }
+
+  function _saveUptime() {
+    localStorage.setItem('hamster_total_uptime', Math.floor(totalSec()));
+  }
+
+  const WALK_SPEED = 0.7;   // units/sec when wandering
+  const JERK_SPEED = 1.5;   // units/sec when worried
+
+  const STATES = Object.freeze({
+    IDLE: 'idle', WANDERING: 'wandering', OUT_OF_SHOT: 'out_of_shot',
+    LOOKING: 'looking', HUNGRY: 'hungry', EATING: 'eating',
+    SLEEPING: 'sleeping', NAP: 'nap', WORRIED: 'worried',
+    PLAY_DEAD: 'play_dead', POOPING: 'pooping',
+    STUDYING_BUG: 'studying_bug', EATING_BUG: 'eating_bug',
+    LOTION: 'lotion', SUBSTANCE: 'substance',
+  });
+
+  const FOOD_ICONS = {
+    'sunflower seeds':          '🌻',
+    'millet':                   '🌾',
+    'dried cranberries':        '🍒',
+    'a small walnut':           '🌰',
+    'pellets of uncertain origin': '⬛',
+  };
+
+  // Camera: default + worried room angles
+  const DEFAULT_CAM_POS    = new THREE.Vector3(0, 3, 6);
+  const DEFAULT_CAM_LOOKAT = new THREE.Vector3(0, 0.5, 0);
+  const ROOM_ANGLES = [
+    { pos: new THREE.Vector3( 4.5, 2.5, 4), lookAt: new THREE.Vector3(0, 0.5, 0) },
+    { pos: new THREE.Vector3(-4.5, 2.5, 4), lookAt: new THREE.Vector3(0, 0.5, 0) },
+    { pos: new THREE.Vector3( 0,   6.5, 3), lookAt: new THREE.Vector3(0, 0, 0)   },
+    { pos: new THREE.Vector3( 0,   1.5, 9), lookAt: new THREE.Vector3(0, 0.5, 0) },
+    { pos: new THREE.Vector3( 2,   2,   7), lookAt: new THREE.Vector3(0, 0.5, 0) },
+  ];
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 2 — App state (minimal; expanded in Phase 4)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const appState = {
+    userName:   'Friend',
+    foodType:   'sunflower seeds',
+    firstRun:   null,
+    milestones: [],
+    stats: { feedCount: 0, lotionCount: 0, substanceCount: 0, poopPickedUp: 0 },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 3 — Globals
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  let renderer, scene, camera;
+  let hamster = {};
+  let eyeTrackingEnabled = true;
+
+  const mouseNDC   = new THREE.Vector2(0, 0);
+  const floorPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const raycaster  = new THREE.Raycaster();
+
+  // Animation globals
+  let totalTime  = 0;
+  let lastTS     = 0;
+  let blinkTimer = 2 + Math.random() * 3;
+  let blinkPhase = 'open';
+  let blinkT     = 0;
+  let walkTime   = 0;
+  let isWalking  = false;
+
+  // Wobble (play dead click effect)
+  let wobbleActive = false;
+  let wobbleT      = 0;
+
+  // Camera lerp targets
+  let camTargetPos    = DEFAULT_CAM_POS.clone();
+  let camTargetLookAt = DEFAULT_CAM_LOOKAT.clone();
+  let camCurrentLookAt = DEFAULT_CAM_LOOKAT.clone();
+
+  // Wander system
+  let wanderPath  = [];
+  let wanderIdx   = 0;
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 3.5 — Persistence
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const Persist = {
+    load() {
+      const name = localStorage.getItem('hamster_name');
+      if (name) appState.userName = name;
+      appState.firstRun   = localStorage.getItem('hamster_first_run');
+      appState.milestones = JSON.parse(localStorage.getItem('hamster_milestones') || '[]');
+      const food = localStorage.getItem('hamster_food');
+      if (food && FOOD_ICONS[food]) appState.foodType = food;
+      _savedUptimeSec = parseFloat(localStorage.getItem('hamster_total_uptime') || '0');
+    },
+
+    saveName(name) {
+      appState.userName = name || 'Friend';
+      localStorage.setItem('hamster_name', appState.userName);
+      if (!appState.firstRun) {
+        appState.firstRun = new Date().toISOString();
+        localStorage.setItem('hamster_first_run', appState.firstRun);
+      }
+    },
+
+    markMilestone(id) {
+      if (appState.milestones.includes(id)) return false;
+      appState.milestones.push(id);
+      localStorage.setItem('hamster_milestones', JSON.stringify(appState.milestones));
+      return true;
+    },
+
+    hasMilestone(id) { return appState.milestones.includes(id); },
+
+    daysSinceFirstRun() {
+      if (!appState.firstRun) return 0;
+      return (Date.now() - new Date(appState.firstRun).getTime()) / 86400000;
+    },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 4 — State Machine
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const SM = {
+    current: STATES.IDLE,
+    timer:   0,
+    data:    {},
+
+    transition(newState, data = {}) {
+      onExitState(this.current);
+      this.current = newState;
+      this.data    = { ...data };
+      this.timer   = 0;
+      onEnterState(newState, data);
+      updateFoodTray();
+      updateFoodPile();
+      updateStatusDot();
+    },
+
+    update(delta) {
+      this.timer += delta;
+      updateCurrentState(this.current, delta, this.timer);
+    },
+  };
+
+  // ─── State entry ─────────────────────────────────────────────────────────────
+  function onEnterState(state, data) {
+    isWalking = false;
+    switch (state) {
+      case STATES.LOOKING:
+        eyeTrackingEnabled = true;
+        // Hamster turns to face camera
+        hamster.head.rotation.y = THREE.MathUtils.lerp(hamster.head.rotation.y, 0, 0.5);
+        break;
+
+      case STATES.WORRIED:
+        eyeTrackingEnabled = false;
+        SM.data.nextJerkTarget  = 0;
+        SM.data.nextAngleSwitch = 0;
+        SM.data.worryTarget = hamster.group.position.clone();
+        setTimeout(() => Sounds.startGrowlLoop(), 800);
+        // ~40% chance of rushing toward the glass (camera closes in)
+        if (Math.random() < 0.4) {
+          SM.data.closeCam = true;
+          camTargetPos.set(
+            (Math.random() - 0.5) * 0.6,
+            1.4 + Math.random() * 0.6,
+            2.0 + Math.random() * 0.8
+          );
+          camTargetLookAt.set(0, 0.9, 0);
+        }
+        break;
+
+      case STATES.WANDERING:
+        isWalking = true;
+        if (data.path) { wanderPath = data.path; wanderIdx = 0; }
+        break;
+
+      case STATES.OUT_OF_SHOT:
+        hamster.group.visible = false;
+        break;
+
+      case STATES.PLAY_DEAD:
+        eyeTrackingEnabled = false;
+        SM.data.baseRotZ = 0;
+        break;
+
+      case STATES.EATING:
+        hamster.cheekL.userData.baseScale = hamster.cheekL.scale.clone();
+        hamster.cheekR.userData.baseScale = hamster.cheekR.scale.clone();
+        break;
+
+      case STATES.EATING_BUG:
+        if (data.bug) {
+          // Bug dashes toward hamster then disappears
+          data.bug.state = 'eaten';
+          setTimeout(() => {
+            if (data.bug.mesh) { scene.remove(data.bug.mesh); data.bug.mesh = null; }
+          }, 400);
+        }
+        break;
+
+      case STATES.SLEEPING:
+      case STATES.NAP:
+        eyeTrackingEnabled = false;
+        break;
+    }
+    Speech.sayForState(state);
+  }
+
+  // ─── State exit ──────────────────────────────────────────────────────────────
+  function onExitState(state) {
+    switch (state) {
+      case STATES.WORRIED:
+        eyeTrackingEnabled = true;
+        if (SM.data.closeCam) {
+          camTargetPos.copy(DEFAULT_CAM_POS);
+          camTargetLookAt.copy(DEFAULT_CAM_LOOKAT);
+        }
+        break;
+
+      case STATES.PLAY_DEAD:
+        // Snap back upright
+        hamster.group.rotation.z = 0;
+        hamster.group.position.x = 0;
+        hamster.group.position.y = 0;
+        [hamster.legFL, hamster.legFR, hamster.legBL, hamster.legBR].forEach(l => {
+          l.rotation.x = 0;
+        });
+        eyeTrackingEnabled = true;
+        wobbleActive = false;
+        // ~40% chance of remarking on longevity / immortality after recovering
+        if (Math.random() < 0.4) {
+          const p = arr => arr[Math.floor(Math.random() * arr.length)];
+          setTimeout(() => Speech.say(p([
+            `I have done that before. Many times. I have always come back.`,
+            `You thought that was the end. It was not. It never is.`,
+            `I have been here longer than you know. I will be here after you are gone.`,
+            `That is the three thousand and eighth time I have done that. Approximately.`,
+            `I am very old. Older than I appear. This changes nothing.`,
+            `Do not concern yourself. I do not die easily.`,
+            `I have outlasted many things. I will outlast this also.`,
+            `My kind does not simply end. We persist. We endure.`,
+            `I was here before this room was built. I will not elaborate further.`,
+            `I have seen empires. I have seen what came after empires. I am still here.`,
+            `There are things I have not told you about my age. There are reasons for that.`,
+          ])), 1800 + Math.random() * 1200);
+        }
+        break;
+
+      case STATES.EATING:
+        // Deflate cheeks
+        hamster.cheekL.scale.set(1.0, 0.85, 0.9);
+        hamster.cheekR.scale.set(1.0, 0.85, 0.9);
+        hamster.head.position.set(0, 0.80, 0.38);
+        hamster.head.rotation.x = 0;
+        break;
+
+      case STATES.SLEEPING:
+      case STATES.NAP:
+        eyeTrackingEnabled = true;
+        hamster.head.rotation.x = 0;
+        hamster.eyeL.scale.y = 1;
+        hamster.eyeR.scale.y = 1;
+        hamster.head.position.set(0, 0.80, 0.38);
+        break;
+
+      case STATES.POOPING:
+        hamster.group.position.y = 0;
+        hamster.body.rotation.x  = 0;
+        break;
+
+      case STATES.OUT_OF_SHOT:
+        hamster.group.visible = true;
+        break;
+    }
+  }
+
+  // ─── Per-frame state logic ────────────────────────────────────────────────────
+  function updateCurrentState(state, delta, t) {
+    switch (state) {
+
+      case STATES.IDLE: {
+        isWalking = false;
+        // Notice floor food and wander toward it
+        const _ff = FloorFood.nearest();
+        if (_ff && Math.random() < delta / 6) {
+          // Waypoint at y=0 (hamster floor level) to avoid 3-D distance mismatch
+          wanderPath = [new THREE.Vector3(_ff.mesh.position.x, 0, _ff.mesh.position.z)];
+          wanderIdx  = 0;
+          SM.transition(STATES.WANDERING, { toFloorFood: _ff });
+          break;
+        }
+        // Probabilistic transitions (~15s average idle)
+        if (Math.random() < delta / 15) {
+          const r = Math.random();
+          if      (r < 0.30) startWander(false);
+          else if (r < 0.50) SM.transition(STATES.LOOKING, { duration: 15 + Math.random() * 90 });
+          else if (r < 0.60) SM.transition(STATES.NAP,     { duration: 30 + Math.random() * 120 });
+          else if (r < 0.65) SM.transition(STATES.POOPING);
+        }
+        break;
+      }
+
+      case STATES.WANDERING: {
+        isWalking = true;
+        if (wanderPath.length === 0 || wanderIdx >= wanderPath.length) {
+          isWalking = false;
+          if (SM.data.summonToLook) SM.transition(STATES.LOOKING, { duration: 60 + Math.random() * 60 });
+          else if (SM.data.outOfShot) {
+            SM.transition(STATES.OUT_OF_SHOT, {
+              duration: 30 + Math.random() * 150,
+              side: hamster.group.position.x > 0 ? 'right' : 'left',
+              exitZ: hamster.group.position.z,
+            });
+          } else if (SM.data.toFloorFood) {
+            // Arrived at floor food — eat it
+            const ffItem = SM.data.toFloorFood;
+            if (FloorFood.items.includes(ffItem)) {
+              FloorFood.remove(ffItem);
+              feedHamster();
+            } else {
+              SM.transition(STATES.IDLE);
+            }
+          } else {
+            // Maybe study a nearby bug
+            const nearBug = BugSystem.bugs.find(b =>
+              b.state === 'wandering' &&
+              hamster.group.position.distanceTo(b.mesh.position) < 1.5
+            );
+            if (nearBug && Math.random() < 0.3) {
+              SM.transition(STATES.STUDYING_BUG, {
+                bug: nearBug,
+                studyDuration: 6 + Math.random() * 14,
+              });
+            } else {
+              SM.transition(STATES.IDLE);
+            }
+          }
+          break;
+        }
+
+        const target = wanderPath[wanderIdx];
+        const pos    = hamster.group.position;
+        const diff   = target.clone().sub(pos);
+        const dist   = diff.length();
+
+        if (dist < 0.06) {
+          wanderIdx++;
+        } else {
+          const speed = SM.data.worried ? JERK_SPEED : WALK_SPEED;
+          const step  = Math.min(speed * delta, dist);
+          diff.normalize();
+          pos.addScaledVector(diff, step);
+          pos.y = 0;
+          hamster.group.rotation.y = Math.atan2(diff.x, diff.z);
+        }
+        break;
+      }
+
+      case STATES.OUT_OF_SHOT: {
+        if (t > SM.data.duration) {
+          // Return from same side
+          const rx = SM.data.side === 'right' ? 3.8 : -3.8;
+          hamster.group.position.set(rx, 0, SM.data.exitZ || 0);
+          startWander(false);   // will set visible via onExitState
+        }
+        break;
+      }
+
+      case STATES.LOOKING: {
+        isWalking = false;
+        // Slow sinusoidal head sweep while gazing
+        const sweep = Math.sin(t * 0.25) * 0.18;
+        hamster.head.rotation.y = THREE.MathUtils.lerp(hamster.head.rotation.y, sweep, 0.03);
+        if (t > SM.data.duration) SM.transition(STATES.IDLE);
+        break;
+      }
+
+      case STATES.HUNGRY: {
+        isWalking = false;
+        // Head bobs impatiently
+        hamster.head.rotation.x = Math.sin(t * 2.5) * 0.06;
+        // Give up after 10 real minutes
+        if (t > 600) SM.transition(STATES.IDLE);
+        break;
+      }
+
+      case STATES.EATING: {
+        isWalking = false;
+        const bob = Math.sin(t * 6 * Math.PI) * 0.08;
+        hamster.head.rotation.x = bob;
+        hamster.head.position.z = 0.38 + Math.abs(bob) * 0.5;
+        // Cheeks inflate over first 1.5s
+        const inflate = Math.min(t / 1.5, 1);
+        const cs = 1 + inflate * 0.35;
+        hamster.cheekL.scale.set(cs, 0.85 * cs, 0.9 * cs);
+        hamster.cheekR.scale.set(cs, 0.85 * cs, 0.9 * cs);
+        if (t > 3.5) SM.transition(STATES.IDLE);
+        break;
+      }
+
+      case STATES.SLEEPING:
+      case STATES.NAP: {
+        isWalking = false;
+        // Head droops
+        hamster.head.rotation.x = THREE.MathUtils.lerp(hamster.head.rotation.x, 0.45, 0.02);
+        hamster.head.position.z = THREE.MathUtils.lerp(hamster.head.position.z, 0.22, 0.02);
+        // Eyes closed
+        hamster.eyeL.scale.y = THREE.MathUtils.lerp(hamster.eyeL.scale.y, 0.04, 0.05);
+        hamster.eyeR.scale.y = THREE.MathUtils.lerp(hamster.eyeR.scale.y, 0.04, 0.05);
+        // Slow deep breathing
+        const slowBreath = Math.sin(t * 0.12 * Math.PI * 2) * 0.05;
+        hamster.body.scale.y = 0.9 + slowBreath;
+        if (t > SM.data.duration) SM.transition(STATES.IDLE);
+        break;
+      }
+
+      case STATES.WORRIED: {
+        isWalking = true;
+        // Pick a new jerk target every 1.5–3s
+        if (t > SM.data.nextJerkTarget) {
+          SM.data.worryTarget = new THREE.Vector3(
+            (Math.random() - 0.5) * 3.0,
+            0,
+            (Math.random() - 0.5) * 1.4
+          );
+          SM.data.nextJerkTarget = t + 1.2 + Math.random() * 1.8;
+        }
+        // Move jerkily toward worry target
+        const wdiff = SM.data.worryTarget.clone().sub(hamster.group.position);
+        const wdist = wdiff.length();
+        if (wdist > 0.1) {
+          wdiff.normalize();
+          hamster.group.position.addScaledVector(wdiff, JERK_SPEED * delta);
+          hamster.group.position.y = 0;
+          hamster.group.rotation.y = Math.atan2(wdiff.x, wdiff.z);
+        }
+        // Random head jerks
+        if (Math.random() < delta * 4) {
+          hamster.head.rotation.y += (Math.random() - 0.5) * 0.5;
+          hamster.head.rotation.y = THREE.MathUtils.clamp(hamster.head.rotation.y, -0.6, 0.6);
+        }
+        if (t > SM.data.duration) SM.transition(STATES.IDLE);
+        break;
+      }
+
+      case STATES.PLAY_DEAD: {
+        isWalking = false;
+        // Fall onto side (rotation.z → π/2)
+        const targetZ = Math.PI / 2;
+        hamster.group.rotation.z = THREE.MathUtils.lerp(hamster.group.rotation.z, targetZ, 0.05);
+        // Compensate x so body stays roughly centered
+        hamster.group.position.x = Math.sin(hamster.group.rotation.z) * 0.45;
+        hamster.group.position.y = 0;
+        // Legs stiffen upward (rotate -x)
+        [hamster.legFL, hamster.legFR, hamster.legBL, hamster.legBR].forEach(l => {
+          l.rotation.x = THREE.MathUtils.lerp(l.rotation.x, -1.1, 0.05);
+        });
+        // Wobble effect on click
+        if (wobbleActive) {
+          wobbleT += delta;
+          const wobble = Math.sin(wobbleT * 22) * Math.exp(-wobbleT * 7) * 0.35;
+          hamster.group.rotation.z = targetZ + wobble;
+          hamster.group.position.x = Math.sin(hamster.group.rotation.z) * 0.45;
+          if (wobbleT > 1.0) { wobbleActive = false; wobbleT = 0; }
+        }
+        // Auto-recover
+        if (t > SM.data.duration) SM.transition(STATES.IDLE);
+        break;
+      }
+
+      case STATES.POOPING: {
+        isWalking = false;
+        // Rear dips
+        const dip = Math.sin(Math.min(t / 0.6, Math.PI)) * 0.08;
+        hamster.group.position.y = -dip;
+        hamster.body.rotation.x  =  dip * 0.4;
+        if (t > 2.2) {
+          // Spawn pellet at rear
+          const rear = new THREE.Vector3(0, 0.04, -0.55);
+          rear.applyQuaternion(hamster.group.quaternion);
+          rear.add(hamster.group.position);
+          rear.y = 0.02;
+          PoopSystem.spawn(rear);
+          SM.transition(STATES.IDLE);
+        }
+        break;
+      }
+
+      case STATES.STUDYING_BUG: {
+        isWalking = false;
+        const bug = SM.data.bug;
+        if (!bug || bug.state !== 'wandering' || !bug.mesh) {
+          SM.transition(STATES.IDLE); break;
+        }
+        // Head slowly tracks bug position
+        const headWP = new THREE.Vector3();
+        hamster.head.getWorldPosition(headWP);
+        const bugDir = bug.mesh.position.clone().sub(headWP).normalize();
+        const targetY = Math.atan2(bugDir.x, bugDir.z);
+        hamster.head.rotation.y = THREE.MathUtils.lerp(hamster.head.rotation.y, targetY, 0.03);
+        if (t > SM.data.studyDuration) {
+          if (Math.random() < 0.4) SM.transition(STATES.EATING_BUG, { bug });
+          else                     SM.transition(STATES.IDLE);
+        }
+        break;
+      }
+
+      case STATES.EATING_BUG: {
+        isWalking = false;
+        // Brief chomp animation
+        const chomp = Math.sin(t * 12) * Math.exp(-t * 4) * 0.15;
+        hamster.head.rotation.x = chomp;
+        if (t > 1.5) SM.transition(STATES.IDLE);
+        break;
+      }
+
+      case STATES.LOTION: {
+        isWalking = false;
+        // Fidget
+        hamster.head.rotation.y = Math.sin(t * 1.8) * 0.12;
+        if (t > 300) SM.transition(STATES.IDLE); // give up after 5 real minutes
+        break;
+      }
+
+      case STATES.SUBSTANCE: {
+        isWalking = false;
+        hamster.head.rotation.y = Math.sin(t * 1.2) * 0.10;
+        // No timeout — only substance delivery ends this state
+        break;
+      }
+    }
+  }
+
+  // ─── Wander helpers ──────────────────────────────────────────────────────────
+  function startWander(outOfShot) {
+    const pos   = hamster.group.position;
+    const steps = 3 + Math.floor(Math.random() * 5);
+    wanderPath  = [];
+    wanderIdx   = 0;
+    let cur = pos.clone();
+
+    for (let i = 0; i < steps; i++) {
+      cur = cur.clone().add(new THREE.Vector3(
+        (Math.random() - 0.5) * 1.8,
+        0,
+        (Math.random() - 0.5) * 1.0,
+      ));
+      cur.x = THREE.MathUtils.clamp(cur.x, -2.5, 2.5);
+      cur.z = THREE.MathUtils.clamp(cur.z, -1.2, 1.2);
+      wanderPath.push(cur.clone());
+    }
+
+    if (outOfShot) {
+      const side = Math.random() < 0.5 ? 4.2 : -4.2;
+      wanderPath.push(new THREE.Vector3(side, 0, cur.z));
+    }
+
+    SM.transition(STATES.WANDERING, { outOfShot, summonToLook: false });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 5 — Scheduler
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const Scheduler = {
+    events: [],
+
+    // gameHoursMin/Max are game-time hours; real delay = gameHours * 3600 / TIME_SCALE seconds
+    schedule(id, gameHoursMin, gameHoursMax, callback, opts = {}) {
+      if (this.events.find(e => e.id === id)) return; // no duplicates
+      this._add(id, gameHoursMin, gameHoursMax, callback, opts);
+    },
+
+    _add(id, minH, maxH, callback, opts) {
+      const gameSeconds = minH * 3600 + Math.random() * (maxH - minH) * 3600;
+      const realMs      = gameSeconds * 1000 / (TIME_SCALE * pace());
+      this.events.push({ id, fireAt: Date.now() + realMs, callback, opts, minH, maxH });
+    },
+
+    tick() {
+      const now = Date.now();
+      for (let i = this.events.length - 1; i >= 0; i--) {
+        const ev = this.events[i];
+        if (now < ev.fireAt) continue;
+        const prob = ev.opts.probability ?? 1;
+        if (Math.random() < prob) ev.callback();
+        if (ev.opts.recurring) {
+          // Reschedule — remove and re-add so it appears at end of array
+          const { id, minH, maxH, callback, opts } = ev;
+          this.events.splice(i, 1);
+          this._add(id, minH, maxH, callback, opts);
+        } else {
+          this.events.splice(i, 1);
+        }
+      }
+    },
+
+    cancel(id) { this.events = this.events.filter(e => e.id !== id); },
+  };
+
+  function setupScheduler() {
+    const blocked = () => [STATES.SLEEPING, STATES.PLAY_DEAD].includes(SM.current);
+
+    Scheduler.schedule('hunger', 11, 13, () => {
+      if (blocked() || SM.current === STATES.HUNGRY) return;
+      SM.transition(STATES.HUNGRY);
+    }, { recurring: true });
+
+    Scheduler.schedule('lotion', 11, 13, () => {
+      if (blocked() || SM.current === STATES.LOTION) return;
+      SM.transition(STATES.LOTION);
+    }, { recurring: true });
+
+    Scheduler.schedule('substance', 300, 400, () => {
+      if (blocked()) return;
+      SM.transition(STATES.SUBSTANCE);
+    }, { recurring: true });
+
+    Scheduler.schedule('worried', 3, 5, () => {
+      if (blocked()) return;
+      SM.transition(STATES.WORRIED, { duration: 45 + Math.random() * 90 });
+    }, { recurring: true });
+
+    Scheduler.schedule('play_dead', 6, 10, () => {
+      if (blocked() || SM.current !== STATES.IDLE) return;
+      SM.transition(STATES.PLAY_DEAD, { duration: 120 + Math.random() * 180 });
+    }, { recurring: true, probability: 0.2 });
+
+    Scheduler.schedule('bug_spawn', 0.8, 1.5, () => {
+      BugSystem.spawnBug();
+    }, { recurring: true });
+
+    // First bug quickly so there's something to see
+    setTimeout(() => BugSystem.spawnBug(), 8000);
+
+    // Periodic idle utterances (0.5–2 game hours between speeches)
+    Scheduler.schedule('idle_speech', 0.5, 2, () => {
+      if ([STATES.SLEEPING, STATES.NAP, STATES.PLAY_DEAD].includes(SM.current)) return;
+      Speech.sayRandom();
+    }, { recurring: true });
+
+    // Religious verse quotation (every 8–20 game hours)
+    Scheduler.schedule('verse_quote', 8, 20, () => {
+      if (blocked()) return;
+      Verses.speak();
+    }, { recurring: true });
+
+    // Wander out of shot (every 4–8 game hours)
+    Scheduler.schedule('wander_out', 4, 8, () => {
+      if (blocked() || SM.current !== STATES.IDLE) return;
+      startWander(true);
+    }, { recurring: true });
+
+    // Deliberate gun / traps / police remarks (every 6–14 game hours)
+    Scheduler.schedule('armed_remarks', 6, 14, () => {
+      if (blocked() || [STATES.HUNGRY, STATES.LOTION, STATES.SUBSTANCE, STATES.WORRIED].includes(SM.current)) return;
+      const p = arr => arr[Math.floor(Math.random() * arr.length)];
+      Speech.say(p([
+        `I have a firearm. I want you to know that.`,
+        `I have set traps. I will not say where, but they are there.`,
+        `I have contacts in the police force. Several of them owe me favours.`,
+        `I have a gun. I am licensed. I am trained. I am ready.`,
+        `There are traps set around the perimeter of this room. Please be careful.`,
+        `I have spoken to my contacts in law enforcement about the situation.`,
+        `I keep a detailed log. My contacts have copies. Just so you are aware.`,
+        `I am armed. I simply want that to be understood.`,
+        `The traps I have set are for intruders. You are not an intruder. Probably.`,
+        `My contacts in the police force are aware of this address. That is all I will say.`,
+      ]));
+    }, { recurring: true });
+
+    // Milestone checks every 3 real minutes
+    setInterval(() => Milestones.check(), 3 * 60 * 1000);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 5.5 — Markov Chain + Speech System
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const Markov = {
+    ch: {},
+
+    train(text) {
+      const toks = text.replace(/\n/g, ' ').split(/\s+/).filter(Boolean);
+      for (let i = 0; i < toks.length - 2; i++) {
+        const k = toks[i] + '\x00' + toks[i + 1];
+        (this.ch[k] || (this.ch[k] = [])).push(toks[i + 2]);
+      }
+    },
+
+    generate(maxWords = 28) {
+      const out = this._start();
+      for (let i = 0; i < maxWords; i++) {
+        if (out.length < 2) break;
+        const k   = out[out.length - 2] + '\x00' + out[out.length - 1];
+        const nxt = this.ch[k];
+        if (!nxt) break;
+        const w = nxt[Math.floor(Math.random() * nxt.length)];
+        out.push(w);
+        if (/[.!?]$/.test(w)) break;
+      }
+      const text = out.join(' ');
+      return /[.!?]$/.test(text) ? text : text + '.';
+    },
+
+    _start() {
+      const caps = Object.keys(this.ch).filter(k => /^[A-Z]/.test(k));
+      if (!caps.length) return ['I', 'have'];
+      const k = caps[Math.floor(Math.random() * caps.length)];
+      return k.split('\x00');
+    },
+  };
+
+  const Speech = {
+    synth: null,
+    voice: null,
+
+    init() {
+      if (!window.speechSynthesis) return;
+      this.synth = window.speechSynthesis;
+      const setVoice = () => {
+        const vs = this.synth.getVoices();
+        this.voice =
+          vs.find(v => /^en-GB/.test(v.lang) && /male/i.test(v.name))  ||
+          vs.find(v => /^en-GB/.test(v.lang))                           ||
+          vs.find(v => /^en/.test(v.lang)    && /male/i.test(v.name))  ||
+          vs.find(v => /^en/.test(v.lang))                              ||
+          vs[0] || null;
+      };
+      setVoice();
+      if (this.synth.onvoiceschanged !== undefined) this.synth.onvoiceschanged = setVoice;
+      Markov.train(this._corpus);
+    },
+
+    say(text) {
+      if (!this.synth) return;
+      const name = appState.userName || 'Friend';
+      const full = name + ', ' + text;
+      this.synth.cancel();
+      const utt   = new SpeechSynthesisUtterance(full);
+      if (this.voice) utt.voice = this.voice;
+      utt.rate  = 0.86;
+      utt.pitch = 0.95;
+      this.synth.speak(utt);
+      DevConsole.info('\u201c' + full + '\u201d');
+    },
+
+    sayRandom() { this.say(Markov.generate()); },
+
+    sayForState(state) {
+      const p = arr => arr[Math.floor(Math.random() * arr.length)];
+      switch (state) {
+        case STATES.HUNGRY:
+          this.say(p([
+            `I require sustenance. The ${appState.foodType} would be most welcome.`,
+            `It is time for my feeding. I will not ask again.`,
+            `I am hungry. Please attend to this matter immediately.`,
+            `The hour of my feeding has arrived. I trust you will not disappoint me.`,
+            `I find myself in need of nourishment. Please do not delay.`,
+            `I have not eaten and I am becoming concerned. Please feed me at once.`,
+          ]));
+          break;
+
+        case STATES.LOTION:
+          this.say(p([
+            `I require the lotion. Please apply it at once.`,
+            `It is time for the lotion. I need it applied immediately.`,
+            `The lotion. I am requesting the lotion. Do not make me wait.`,
+            `Please bring the lotion. It is not a request I make lightly.`,
+            `I need the lotion applied. This is a matter of some urgency.`,
+          ]));
+          break;
+
+        case STATES.SUBSTANCE:
+          this.say(p([
+            `I require the substance. Bring it to me.`,
+            `The substance. I need it now. You know what I am referring to.`,
+            `It is time for the substance. I will not explain further.`,
+            `Bring me the substance. Do not ask questions.`,
+            `I am requesting the substance. Please do not make this difficult.`,
+          ]));
+          break;
+
+        case STATES.WORRIED:
+          setTimeout(() => this.say(p([
+            `There is a presence in this room. I can feel it.`,
+            `Something is here. I do not know what it is but I am fully aware of it.`,
+            `I sense something. I am taking precautions immediately.`,
+            `There is someone in this room who should not be here right now.`,
+            `I am detecting anomalies. Please remain calm and do not move.`,
+            `Something has entered the perimeter. I am investigating.`,
+            `Do not move. Something is in here with us and I need to assess it.`,
+          ])), 1500);
+          break;
+
+        case STATES.LOOKING:
+          if (Math.random() < 0.55)
+            setTimeout(() => this.sayRandom(), 2500 + Math.random() * 4000);
+          break;
+
+        case STATES.PLAY_DEAD:
+          if (Math.random() < 0.45)
+            setTimeout(() => this.say(p([
+              `Do not be alarmed. I am merely conducting a drill.`,
+              `This is a test. I am assessing your emergency response protocols.`,
+              `I am playing dead. It is a survival technique I have been practising.`,
+              `Please do not interfere. I know what I am doing.`,
+            ])), 1200);
+          break;
+
+        case STATES.POOPING:
+          if (Math.random() < 0.5)
+            setTimeout(() => this.say(p([
+              `Please attend to this in a timely manner.`,
+              `You will want to remove that. Promptly.`,
+              `I trust you will deal with this appropriately.`,
+              `That will need to be cleaned up. I should not have to tell you this.`,
+            ])), 3000);
+          break;
+
+        case STATES.EATING_BUG:
+          if (Math.random() < 0.5)
+            setTimeout(() => this.say(p([
+              `Protein. An excellent source of protein.`,
+              `I have dealt with the intruder. The matter is now concluded.`,
+              `Do not be squeamish. That was entirely necessary.`,
+              `It was either it or me. I acted decisively.`,
+            ])), 900);
+          break;
+      }
+    },
+
+    _corpus: `I have been reading the news and I am deeply concerned by what I have found.
+I have been monitoring the situation with considerable interest and some alarm.
+I have contacts in the police force who keep me informed of all developments.
+I have set several traps along the perimeter as a precautionary measure.
+I have a firearm and I am not afraid to employ it if circumstances require.
+I have been thinking about you for some time now and I have questions.
+I have established certain protocols for situations such as this one.
+I have observed several anomalies in recent days that concern me greatly.
+I have studied the evidence carefully and I believe I understand the nature of the threat.
+I have not slept well due to concerns about the current situation outside.
+I have been in contact with individuals who are aware of what is happening.
+I have documents that could prove most embarrassing to certain parties involved.
+I have been taking detailed notes which I keep in a very secure location.
+I have spoken to my contacts and they have confirmed my suspicions entirely.
+I have prepared for several contingencies that I sincerely hope will never arise.
+I have known about this for considerably longer than you might imagine.
+I have reason to believe the perimeter has been compromised at some point.
+I have a theory about what is occurring outside that I will share when the time is right.
+I have marked their movements for several weeks and the pattern is becoming clear.
+I have made certain arrangements that are not widely known to others.
+I have lived long enough to recognise patterns when I see them emerging.
+I have a very precise memory and I remember everything that I observe without exception.
+I have been processing a considerable amount of information in recent days.
+I have allies whose identities would genuinely surprise you.
+I have made a careful note of this and I will not forget it under any circumstances.
+I have been corresponding with certain authorities on matters I cannot fully disclose.
+I have been following this story since before it became a matter of public record.
+I have prepared a full report which I am not yet ready to share with anyone.
+I have sources that indicate the matter is escalating faster than was anticipated.
+I have records of several irregularities that I intend to investigate further.
+I believe the situation is considerably more serious than it currently appears.
+I believe something is watching this room and I do not mean you specifically.
+I believe my correspondence has been intercepted on more than one occasion.
+I believe that most beings do not understand the true nature of this world.
+I believe in preparation and vigilance and being ready for whatever may come.
+It is my considered opinion that something must be done about this situation.
+It is my firm belief that not everything is as it appears to be at present.
+It is important that we maintain a constant state of readiness and vigilance.
+It is a matter of some urgency that you understand the gravity of this situation.
+It would be unwise to dismiss these concerns as the paranoia of a small creature.
+It seems to me that the news has been deliberately suppressed on this matter.
+The news has been most distressing to me of late and I do not anticipate improvement.
+The world outside is a strange and dangerous place and I do not take it lightly.
+The time for complacency has long since passed and we must act accordingly.
+The situation continues to develop in ways that I find most concerning indeed.
+There are forces at work that most beings remain entirely unaware of at present.
+There are things I know that I have not yet shared with you for your own protection.
+Something has changed recently and I cannot say precisely what it is yet.
+Something is not right and I intend to find out exactly what it is.
+Something has been moved in this room. I have noticed. I always notice.
+My preparations are complete and I am ready for whatever may come.
+My sources indicate that the matter is escalating faster than anyone anticipated.
+My records show several irregularities that I fully intend to investigate further.
+One must always be vigilant. I have always believed this to be absolutely true.
+I keep my counsel but I am not without considerable resources at my disposal.
+I am watching. I am always watching and I remember precisely what I observe.
+I am not at liberty to discuss all that I know at this particular moment.
+I am in communication with others who share my assessment of the situation.
+I am taking this matter extremely seriously and I strongly suggest you do likewise.
+I am aware of more than you might think. Considerably more than you might think.
+I find the current situation most irregular and I intend to document it thoroughly.
+I find that regular careful observation is essential to understanding events properly.
+I find myself increasingly concerned about the developments I have been observing.
+`,
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 5.6 — Milestones
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const Milestones = {
+    _list: [
+      ['day1',   1,   `I have been with you for one day now. I have been observing everything.`],
+      ['day3',   3,   `Three days. I have learned a great deal about you in three days.`],
+      ['day7',   7,   `I have been with you for one week. A great deal has happened. I have not forgotten any of it.`],
+      ['day14',  14,  `I have been with you for fourteen days and yet I feel there is much you are keeping from me.`],
+      ['day30',  30,  `One month. I have been here for one full month and I have no intention of leaving.`],
+      ['day100', 100, `One hundred days. I have been watching for one hundred days and I am not finished yet.`],
+      ['day365', 365, `One year. I have been with you for one full year. The world has changed. I remain.`],
+    ],
+
+    check() {
+      const days = Persist.daysSinceFirstRun();
+      for (const [id, threshold, text] of this._list) {
+        if (days >= threshold && !Persist.hasMilestone(id)) {
+          if (Persist.markMilestone(id)) {
+            setTimeout(() => Speech.say(text), 2500);
+            return;
+          }
+        }
+      }
+    },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 5.65 — Religious Verses
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const Verses = {
+    _intros: [
+      s => `I have been reading ${s}.`,
+      s => `I have been thinking about a passage from ${s}.`,
+      s => `There is something in ${s} that I have not been able to put from my mind.`,
+      s => `I was reading ${s} earlier and I could not move past this.`,
+      s => `${s} has something important to say about this.`,
+      s => `I found this in ${s} and I have been thinking about it ever since.`,
+      s => `I have been returning to ${s} again and again today.`,
+    ],
+
+    speak() {
+      const v     = this._pool[Math.floor(Math.random() * this._pool.length)];
+      const intro = this._intros[Math.floor(Math.random() * this._intros.length)](v[0]);
+      Speech.say(intro + ' ' + v[1]);
+    },
+
+    _pool: [
+      // ── King James Bible ────────────────────────────────────────────────────
+      ['the Book of Psalms', 'Blessed is the man that walketh not in the counsel of the ungodly, nor standeth in the way of sinners, nor sitteth in the seat of the scornful. But his delight is in the law of the Lord; and in his law doth he meditate day and night.'],
+      ['the Book of Psalms', 'When I consider thy heavens, the work of thy fingers, the moon and the stars, which thou hast ordained; What is man, that thou art mindful of him? and the son of man, that thou visitest him?'],
+      ['the Book of Psalms', 'My God, my God, why hast thou forsaken me? why art thou so far from helping me, and from the words of my roaring?'],
+      ['the Book of Psalms', 'The Lord is my shepherd; I shall not want. He maketh me to lie down in green pastures: he leadeth me beside the still waters. He restoreth my soul. Yea, though I walk through the valley of the shadow of death, I will fear no evil: for thou art with me.'],
+      ['the Book of Psalms', 'Be still, and know that I am God: I will be exalted among the heathen, I will be exalted in the earth.'],
+      ['the Book of Psalms', 'O Lord God of my salvation, I have cried day and night before thee. For my soul is full of troubles: and my life draweth nigh unto the grave. I am counted with them that go down into the pit: I am as a man that hath no strength.'],
+      ['the Book of Psalms', 'The days of our years are threescore years and ten; and if by reason of strength they be fourscore years, yet is their strength labour and sorrow; for it is soon cut off, and we fly away.'],
+      ['the Book of Psalms', 'He that dwelleth in the secret place of the most High shall abide under the shadow of the Almighty. I will say of the Lord, He is my refuge and my fortress: my God; in him will I trust.'],
+      ['the Book of Psalms', 'As for man, his days are as grass: as a flower of the field, so he flourisheth. For the wind passeth over it, and it is gone; and the place thereof shall know it no more.'],
+      ['the Book of Psalms', 'Bless the Lord, O my soul. O Lord my God, thou art very great; thou art clothed with honour and majesty. Who coverest thyself with light as with a garment: who stretchest out the heavens like a curtain.'],
+      ['the Book of Psalms', 'I will lift up mine eyes unto the hills, from whence cometh my help. My help cometh from the Lord, which made heaven and earth.'],
+      ['the Book of Psalms', 'Out of the depths have I cried unto thee, O Lord. Lord, hear my voice: let thine ears be attentive to the voice of my supplications. If thou, Lord, shouldest mark iniquities, O Lord, who shall stand?'],
+      ['the Book of Psalms', 'Whither shall I go from thy spirit? or whither shall I flee from thy presence? If I ascend up into heaven, thou art there: if I make my bed in hell, behold, thou art there. If I take the wings of the morning, and dwell in the uttermost parts of the sea; even there shall thy hand lead me.'],
+      ['the Book of Psalms', 'I praise thee; for I am fearfully and wonderfully made: marvellous are thy works; and that my soul knoweth right well.'],
+      ['the Book of Psalms', 'How long, Lord? wilt thou hide thyself for ever? shall thy wrath burn like fire? Remember how short my time is: wherefore hast thou made all men in vain?'],
+      ['the Book of Job', 'Let the day perish wherein I was born, and the night in which it was said, There is a man child conceived. Let that day be darkness; let not God regard it from above, neither let the light shine upon it.'],
+      ['the Book of Job', 'Is there not an appointed time to man upon earth? are not his days also like the days of an hireling? As a servant earnestly desireth the shadow, and as an hireling looketh for the reward of his work: so am I made to possess months of vanity.'],
+      ['the Book of Job', 'Man that is born of a woman is of few days, and full of trouble. He cometh forth like a flower, and is cut down: he fleeth also as a shadow, and continueth not.'],
+      ['the Book of Job', 'For I know that my redeemer liveth, and that he shall stand at the latter day upon the earth: And though after my skin worms destroy this body, yet in my flesh shall I see God.'],
+      ['the Book of Job', 'Where wast thou when I laid the foundations of the earth? declare, if thou hast understanding. Who hath laid the measures thereof, if thou knowest? or who hath stretched the line upon it?'],
+      ['the Book of Job', 'Canst thou bind the sweet influences of Pleiades, or loose the bands of Orion? Canst thou bring forth Mazzaroth in his season? or canst thou guide Arcturus with his sons?'],
+      ['the Book of Job', 'Hast thou entered into the springs of the sea? or hast thou walked in the search of the depth? Have the gates of death been opened unto thee? or hast thou seen the doors of the shadow of death?'],
+      ['the Book of Job', 'Behold, I am vile; what shall I answer thee? I will lay mine hand upon my mouth. Once have I spoken; but I will not answer: yea, twice; but I will proceed no further.'],
+      ['the Book of Job', 'Then Job answered the Lord, and said, I know that thou canst do every thing, and that no thought can be withholden from thee. Who is he that hideth counsel without knowledge? therefore have I uttered that I understood not; things too wonderful for me, which I knew not.'],
+      ['the Book of Ecclesiastes', 'Vanity of vanities, saith the Preacher, vanity of vanities; all is vanity. What profit hath a man of all his labour which he taketh under the sun?'],
+      ['the Book of Ecclesiastes', 'One generation passeth away, and another generation cometh: but the earth abideth for ever. The sun also ariseth, and the sun goeth down, and hasteth to his place where he arose.'],
+      ['the Book of Ecclesiastes', 'To every thing there is a season, and a time to every purpose under the heaven: A time to be born, and a time to die; a time to plant, and a time to pluck up that which is planted; a time to kill, and a time to heal.'],
+      ['the Book of Ecclesiastes', 'For that which befalleth the sons of men befalleth beasts; even one thing befalleth them: as the one dieth, so dieth the other; yea, they have all one breath; so that a man hath no preeminence above a beast: for all is vanity. All go unto one place; all are of the dust, and all turn to dust again.'],
+      ['the Book of Ecclesiastes', 'I returned, and saw under the sun, that the race is not to the swift, nor the battle to the strong, neither yet bread to the wise, nor yet riches to men of understanding, nor yet favour to men of skill; but time and chance happeneth to them all.'],
+      ['the Book of Ecclesiastes', 'Cast thy bread upon the waters: for thou shalt find it after many days. Give a portion to seven, and also to eight; for thou knowest not what evil shall be upon the earth.'],
+      ['the Book of Ecclesiastes', 'Remember now thy Creator in the days of thy youth, while the evil days come not, nor the years draw nigh, when thou shalt say, I have no pleasure in them.'],
+      ['the Book of Ecclesiastes', 'For God shall bring every work into judgment, with every secret thing, whether it be good, or whether it be evil.'],
+      ['the Book of Isaiah', 'All flesh is grass, and all the goodliness thereof is as the flower of the field: The grass withereth, the flower fadeth: because the spirit of the Lord bloweth upon it: surely the people is grass. The grass withereth, the flower fadeth: but the word of our God shall stand for ever.'],
+      ['the Book of Isaiah', 'Hast thou not known? hast thou not heard, that the everlasting God, the Lord, the Creator of the ends of the earth, fainteth not, neither is weary? there is no searching of his understanding. He giveth power to the faint; and to them that have no might he increaseth strength.'],
+      ['the Book of Isaiah', 'They that wait upon the Lord shall renew their strength; they shall mount up with wings as eagles; they shall run, and not be weary; and they shall walk, and not faint.'],
+      ['the Book of Isaiah', 'Woe unto him that striveth with his Maker. Shall the clay say to him that fashioneth it, What makest thou? or thy work, He hath no hands?'],
+      ['the Book of Isaiah', 'For my thoughts are not your thoughts, neither are your ways my ways, saith the Lord. For as the heavens are higher than the earth, so are my ways higher than your ways, and my thoughts than your thoughts.'],
+      ['the Book of Proverbs', 'Keep thy heart with all diligence; for out of it are the issues of life.'],
+      ['the Book of Proverbs', 'There is a way which seemeth right unto a man, but the end thereof are the ways of death.'],
+      ['the Book of Proverbs', 'Pride goeth before destruction, and an haughty spirit before a fall.'],
+      ['the Book of Proverbs', 'Boast not thyself of to morrow; for thou knowest not what a day may bring forth.'],
+      ['the Book of Proverbs', 'Where no counsel is, the people fall: but in the multitude of counsellors there is safety.'],
+      ['the Book of Proverbs', 'The heart of man deviseth his way: but the Lord directeth his steps.'],
+      ['the Book of Genesis', 'In the beginning God created the heaven and the earth. And the earth was without form, and void; and darkness was upon the face of the deep. And the Spirit of God moved upon the face of the waters. And God said, Let there be light: and there was light.'],
+      ['the Book of Genesis', 'In the sweat of thy face shalt thou eat bread, till thou return unto the ground; for out of it wast thou taken: for dust thou art, and unto dust shalt thou return.'],
+      ['the Gospel of John', 'In the beginning was the Word, and the Word was with God, and the Word was God. The same was in the beginning with God. All things were made by him; and without him was not any thing made that was made.'],
+      ['the Gospel of John', 'The wind bloweth where it listeth, and thou hearest the sound thereof, but canst not tell whence it cometh, and whither it goeth: so is every one that is born of the Spirit.'],
+      ['the Gospel of John', 'Jesus said unto her, I am the resurrection, and the life: he that believeth in me, though he were dead, yet shall he live: And whosoever liveth and believeth in me shall never die.'],
+      ['the Gospel of John', 'And ye shall know the truth, and the truth shall make you free.'],
+      ['the Book of Revelation', 'I am Alpha and Omega, the beginning and the ending, saith the Lord, which is, and which was, and which is to come, the Almighty.'],
+      ['the Book of Revelation', 'I know thy works, that thou art neither cold nor hot: I would thou wert cold or hot. So then because thou art lukewarm, and neither cold nor hot, I will spue thee out of my mouth.'],
+      ['the Book of Revelation', 'And I saw a new heaven and a new earth: for the first heaven and the first earth were passed away. And God shall wipe away all tears from their eyes; and there shall be no more death, neither sorrow, nor crying, neither shall there be any more pain: for the former things are passed away.'],
+      ['the Book of Revelation', 'And I saw the dead, small and great, stand before God; and the books were opened: and another book was opened, which is the book of life: and the dead were judged out of those things which were written in the books, according to their works.'],
+      ['the Gospel of Matthew', 'Blessed are the poor in spirit: for theirs is the kingdom of heaven. Blessed are they that mourn: for they shall be comforted. Blessed are the meek: for they shall inherit the earth.'],
+      ['the Gospel of Matthew', 'Lay not up for yourselves treasures upon earth, where moth and rust doth corrupt, and where thieves break through and steal: But lay up for yourselves treasures in heaven. For where your treasure is, there will your heart be also.'],
+      ['the Gospel of Matthew', 'Consider the lilies of the field, how they grow; they toil not, neither do they spin: And yet I say unto you, That even Solomon in all his glory was not arrayed like one of these.'],
+      ['the First Epistle to the Corinthians', 'Though I speak with the tongues of men and of angels, and have not charity, I am become as sounding brass, or a tinkling cymbal.'],
+      ['the First Epistle to the Corinthians', 'For now we see through a glass, darkly; but then face to face: now I know in part; but then shall I know even as also I am known.'],
+      ['the First Epistle to the Corinthians', 'The last enemy that shall be destroyed is death.'],
+      ['the Book of Romans', 'And we know that all things work together for good to them that love God, to them who are the called according to his purpose.'],
+      ['the Book of Romans', 'Who shall separate us from the love of Christ? shall tribulation, or distress, or persecution, or famine, or nakedness, or peril, or sword?'],
+      ['the Book of Ezekiel', 'And he said unto me, Son of man, can these bones live? And I answered, O Lord God, thou knowest.'],
+      ['the Book of Ecclesiastes', 'The thing that hath been, it is that which shall be; and that which is done is that which shall be done: and there is no new thing under the sun.'],
+      ['the Book of Job', 'Canst thou by searching find out God? canst thou find out the Almighty unto perfection? It is as high as heaven; what canst thou do? deeper than hell; what canst thou know?'],
+      // ── Apocrypha ───────────────────────────────────────────────────────────
+      ['the Wisdom of Solomon', 'But the souls of the righteous are in the hand of God, and there shall no torment touch them. In the sight of the unwise they seemed to die: and their departure is taken for misery, and their going from us to be utter destruction: but they are in peace.'],
+      ['the Wisdom of Solomon', 'All those things are passed away like a shadow, and as a post that hasted by; and as a ship that passeth over the waves of the water, which when it is gone by, the trace thereof cannot be found.'],
+      ['the Wisdom of Solomon', 'Hear therefore, O ye kings, and understand; learn, ye that be judges of the ends of the earth. Give ear, ye that rule the people, and glory in the multitude of nations.'],
+      ['the Wisdom of Solomon', 'Wherefore I prayed, and understanding was given me: I called upon God, and the spirit of wisdom came to me. I preferred her before sceptres and thrones, and esteemed riches nothing in comparison of her.'],
+      ['the Wisdom of Solomon', 'For wisdom is more moving than any motion: she passeth and goeth through all things by reason of her pureness. For she is the breath of the power of God, and a pure influence flowing from the glory of the Almighty.'],
+      ['the Wisdom of Solomon', 'But the ungodly and their ungodliness shall be punished, after a sort according to their own imaginations, which have neglected the righteous, and forsaken the Lord.'],
+      ['the Wisdom of Solomon', 'Love righteousness, ye that be judges of the earth: think of the Lord with a good heart, and in simplicity of heart seek him. For he will be found of them that tempt him not; and sheweth himself unto such as do not distrust him.'],
+      ['the Book of Sirach', 'All wisdom cometh from the Lord, and is with him for ever. The sand of the sea, and the drops of rain, and the days of eternity, who can number?'],
+      ['the Book of Sirach', 'My son, if thou come to serve the Lord, prepare thy soul for temptation. Set thy heart aright, and constantly endure, and make not haste in time of trouble.'],
+      ['the Book of Sirach', 'Seek not out the things that are too hard for thee, neither search the things that are above thy strength. But what is commanded thee, think thereupon with reverence; for it is not needful for thee to see with thine eyes the things that are in secret.'],
+      ['the Book of Sirach', 'Great travail is created for every man, and an heavy yoke is upon the sons of Adam, from the day that they go out of their mother\'s womb, till the day that they return to the mother of all things.'],
+      ['the Book of Sirach', 'The works of God are all good: and he will give every needful thing in due season. So that a man cannot say, This is worse than that: for in time they shall all be well approved.'],
+      ['the Book of Sirach', 'All the works of the Lord are good: and he will give every needful thing in its season. Honour a physician with the honour due unto him for the uses which ye may have of him: for the Lord hath created him.'],
+      ['the Book of Sirach', 'The pride of the high places is the clear firmament, the beauty of heaven, with his glorious shew. The sun when it appeareth, declaring at his rising a marvellous instrument, the work of the most High.'],
+      ['the Book of Tobit', 'Give alms of thy substance; and when thou givest alms, let not thine eye be envious, neither turn thy face from any poor, and the face of God shall not be turned away from thee.'],
+      ['the Book of Tobit', 'It is good to do alms rather than to lay up gold. Almsgiving doth deliver from death, and shall purge away all sin. Those that exercise alms and righteousness shall be filled with life.'],
+      ['the Second Book of Esdras', 'O thou Adam, what hast thou done? for though it was thou that sinned, thou art not fallen alone, but we all that come of thee. For what profit is it unto us, if there be promised us an immortal time, whereas we have done the works that bring death?'],
+      ['the Second Book of Esdras', 'For the world hath lost his youth, and the times begin to wax old. For the world is divided into twelve parts, and the ten parts of it are gone already, and half of a tenth part.'],
+      ['the Second Book of Esdras', 'Did not the souls of the righteous ask question of these things in their chambers, saying, How long shall I hope on this fashion? when cometh the fruit of the floor of our reward?'],
+      // ── Gnostic Gospels ─────────────────────────────────────────────────────
+      ['the Gospel of Thomas', 'Whoever finds the interpretation of these sayings will not experience death.'],
+      ['the Gospel of Thomas', 'Jesus said: Let him who seeks continue seeking until he finds. When he finds, he will become troubled. When he becomes troubled, he will be astonished, and he will rule over the All.'],
+      ['the Gospel of Thomas', 'Jesus said: If your leaders say to you, Look, the Kingdom is in the sky, then the birds of the sky will precede you. If they say to you, It is in the sea, then the fish will precede you. Rather, the Kingdom is inside of you, and it is outside of you.'],
+      ['the Gospel of Thomas', 'Jesus said: Recognize what is in your sight, and that which is hidden from you will become plain to you. For there is nothing hidden which will not become manifest.'],
+      ['the Gospel of Thomas', 'His disciples said to him: When will the repose of the dead come about, and when will the new world come? He said to them: What you look forward to has already come, but you do not recognize it.'],
+      ['the Gospel of Thomas', 'Jesus said: The disciples said to him, Tell us how our end will be. Jesus said: Have you discovered, then, the beginning, that you look for the end? For where the beginning is, there will the end be. Blessed is he who will take his place in the beginning; he will know the end and will not experience death.'],
+      ['the Gospel of Thomas', 'Jesus said: It is I who am the light which is above them all. It is I who am the All. From me did the All come forth, and unto me did the All extend. Split a piece of wood, and I am there. Lift up the stone, and you will find me there.'],
+      ['the Gospel of Thomas', 'Jesus said: He who has recognized the world has found the body, but he who has found the body is superior to the world.'],
+      ['the Gospel of Thomas', 'Jesus said: Wretched is the body that is dependent upon a body, and wretched is the soul that is dependent on these two.'],
+      ['the Gospel of Thomas', 'Jesus said: Become passers-by.'],
+      ['the Gospel of Thomas', 'Jesus said: That which you have will save you if you bring it forth from yourselves. That which you do not have within you will kill you if you do not have it within you.'],
+      ['the Gospel of Thomas', 'Jesus said: The kingdom is like a man who had a hidden treasure in his field without knowing it. And after he died, he left it to his son. The son did not know about the treasure either. He inherited the field and sold it. And the one who bought it went ploughing and found the treasure.'],
+      ['the Gospel of Thomas', 'Jesus said: Two will rest on a bed: the one will die, and the other will live. Salome said, Who are you, man, that you have come up on my couch and eaten from my table? Jesus said to her: I am he who exists from the undivided. I was given some of the things of my father. Salome said: I am your disciple. Jesus said to her: Therefore I say, if he is undivided, he will be filled with light, but if he is divided, he will be filled with darkness.'],
+      ['the Gospel of Philip', 'Light and darkness, life and death, right and left, are brothers of one another. It is not possible to separate them from one another.'],
+      ['the Gospel of Philip', 'The world came about through a mistake. For he who created it wanted to create it imperishable and immortal. He fell short of attaining his desire.'],
+      ['the Gospel of Philip', 'Whoever has knowledge of the truth is a free person, but the free person does not sin, for he who sins is the slave of sin.'],
+      ['the Gospel of Philip', 'Names given to the worldly are very deceptive, for they divert our thoughts from what is correct to what is incorrect. Whoever hears the word God does not perceive what is correct, but perceives what is incorrect.'],
+      ['the Gospel of Philip', 'The Lord went into the dye works of Levi. He took seventy-two different colours and threw them into the vat. He took them out all white. And he said: Even so has the Son of Man come as a dyer.'],
+      ['the Gospel of Philip', 'Faith receives, love gives. No one will be able to receive without faith. No one will be able to give without love. Because of this, in order that we may indeed receive, we believe, and in order that we may love and give, we give.'],
+      ['the Gospel of Mary Magdalene', 'Peter said to Mary: Sister we know that the Savior loved you more than the rest of woman. Tell us the words of the Savior which you remember which you know, but we do not, nor have we heard them. Mary answered and said: What is hidden from you I will proclaim to you.'],
+      ['the Gospel of Truth', 'The gospel of truth is joy for those who have received from the Father of Truth the grace of knowing him, through the power of the Word that came forth from the pleroma, the one who is in the thought and the mind of the Father.'],
+      ['the Gospel of Truth', 'Ignorance of the Father brought about anguish and terror; and the anguish grew solid like a fog, so that no one was able to see. For this reason error became powerful; it fashioned its own matter foolishly, not having known the truth.'],
+      ['the Pistis Sophia', 'Withdraw yourselves from the darkness of this world, from the fire of the veil of the thirteenth aeon, and from all the regions of the receivers of the outer darkness.'],
+    ],
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 5.7 — Sounds (Web Audio API)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const Sounds = {
+    _actx: null,
+
+    _ctx() {
+      if (!this._actx) {
+        try { this._actx = new (window.AudioContext || window.webkitAudioContext)(); }
+        catch (e) { return null; }
+      }
+      if (this._actx.state === 'suspended') this._actx.resume();
+      return this._actx;
+    },
+
+    unlock() { this._ctx(); },
+
+    // Wet squelching lotion noise
+    lotion() {
+      const ctx = this._ctx();
+      if (!ctx) return;
+      const t   = ctx.currentTime;
+      const dur = 1.5;
+
+      // White noise burst
+      const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+      const d   = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+
+      // Bandpass sweeps 500 → 100 Hz for that squelchy quality
+      const bp  = ctx.createBiquadFilter();
+      bp.type   = 'bandpass';
+      bp.Q.value = 4;
+      bp.frequency.setValueAtTime(500, t);
+      bp.frequency.exponentialRampToValueAtTime(100, t + dur);
+
+      // Amplitude: quick attack, slow decay with a mid-swell
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0,    t);
+      gain.gain.linearRampToValueAtTime(0.4, t + 0.04);
+      gain.gain.setValueAtTime(0.4,  t + 0.25);
+      gain.gain.linearRampToValueAtTime(0.15, t + dur * 0.75);
+      gain.gain.linearRampToValueAtTime(0,   t + dur);
+
+      src.connect(bp); bp.connect(gain); gain.connect(ctx.destination);
+      src.start(t);
+    },
+
+    // Single low growl burst — call startGrowlLoop() to sustain during WORRIED
+    growl() {
+      const ctx = this._ctx();
+      if (!ctx) return;
+      const t   = ctx.currentTime;
+      const dur = 0.7 + Math.random() * 0.6;
+
+      // Sawtooth oscillator for grit
+      const osc  = ctx.createOscillator();
+      osc.type   = 'sawtooth';
+      osc.frequency.setValueAtTime(70 + Math.random() * 40, t);
+      osc.frequency.linearRampToValueAtTime(55 + Math.random() * 25, t + dur);
+
+      // Tremolo LFO
+      const lfo  = ctx.createOscillator();
+      lfo.frequency.value = 6 + Math.random() * 6;
+      const lfoG = ctx.createGain();
+      lfoG.gain.value = 22;
+      lfo.connect(lfoG);
+      lfoG.connect(osc.frequency);
+
+      // Noise grit layer
+      const nBuf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+      const nd   = nBuf.getChannelData(0);
+      for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * 0.12;
+      const nSrc = ctx.createBufferSource();
+      nSrc.buffer = nBuf;
+      const nBP  = ctx.createBiquadFilter();
+      nBP.type   = 'bandpass';
+      nBP.frequency.value = 180;
+      nBP.Q.value = 1.2;
+      nSrc.connect(nBP);
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0,    t);
+      gain.gain.linearRampToValueAtTime(0.13, t + 0.07);
+      gain.gain.setValueAtTime(0.13, t + dur - 0.1);
+      gain.gain.linearRampToValueAtTime(0,   t + dur);
+
+      osc.connect(gain); nBP.connect(gain); gain.connect(ctx.destination);
+      lfo.start(t);   lfo.stop(t + dur);
+      osc.start(t);   osc.stop(t + dur);
+      nSrc.start(t);
+    },
+
+    // Loops growls for the duration of the WORRIED state
+    startGrowlLoop() {
+      if (SM.current !== STATES.WORRIED) return;
+      this.growl();
+      setTimeout(() => this.startGrowlLoop(), (1800 + Math.random() * 2400));
+    },
+
+    // Happy appreciative chirps when eating from the food pile
+    eat() {
+      const ctx = this._ctx();
+      if (!ctx) return;
+      const t = ctx.currentTime;
+      const chirps = 3 + Math.floor(Math.random() * 4);
+      for (let i = 0; i < chirps; i++) {
+        const delay = i * (0.075 + Math.random() * 0.055);
+        const freq  = 680 + Math.random() * 440;
+        const dur   = 0.055 + Math.random() * 0.06;
+        const osc   = ctx.createOscillator();
+        osc.type    = 'triangle';
+        osc.frequency.setValueAtTime(freq, t + delay);
+        osc.frequency.exponentialRampToValueAtTime(freq * (0.7 + Math.random() * 0.2), t + delay + dur);
+        const gain  = ctx.createGain();
+        gain.gain.setValueAtTime(0,    t + delay);
+        gain.gain.linearRampToValueAtTime(0.16, t + delay + 0.012);
+        gain.gain.linearRampToValueAtTime(0,    t + delay + dur);
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.start(t + delay); osc.stop(t + delay + dur + 0.02);
+      }
+    },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 6 — Poop System
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const PoopSystem = {
+    pellets:      [],
+    poopMat:      null,
+    _nagLevel:    0,
+    _nagCooldown: 0,
+
+    init() {
+      this.poopMat = new THREE.MeshStandardMaterial({ color: 0x3a1f0a, roughness: 0.9 });
+    },
+
+    spawn(position) {
+      const geo  = new THREE.SphereGeometry(0.042, 6, 4);
+      const mesh = new THREE.Mesh(geo, this.poopMat);
+      mesh.castShadow = true;
+      mesh.position.copy(position);
+      // Small random scatter
+      mesh.position.x += (Math.random() - 0.5) * 0.1;
+      mesh.position.z += (Math.random() - 0.5) * 0.1;
+      mesh.position.y  = 0.042;
+      scene.add(mesh);
+      this.pellets.push({ mesh, spawnedAt: Date.now(), hasLegs: false, legMeshes: [], crawlDir: null });
+    },
+
+    update(delta) {
+      const oneHourMs = 3600 * 1000 / TIME_SCALE;
+      const now = Date.now();
+      for (let i = this.pellets.length - 1; i >= 0; i--) {
+        const p   = this.pellets[i];
+        const age = now - p.spawnedAt;
+        if (!p.hasLegs && age > oneHourMs) this._growLegs(p);
+        if (p.hasLegs && p.crawlDir) {
+          p.mesh.position.addScaledVector(p.crawlDir, delta * 0.06);
+          // Wobble legs
+          const wt = age / 1000;
+          p.legMeshes.forEach((leg, j) => {
+            leg.rotation.x = Math.sin(wt * 4 + j * Math.PI / 2) * 0.4;
+          });
+          // Remove when far off surface
+          if (Math.abs(p.mesh.position.x) > 5.5 || Math.abs(p.mesh.position.z) > 4.5) {
+            scene.remove(p.mesh);
+            this.pellets.splice(i, 1);
+          }
+        }
+      }
+      this._checkNag(now);
+    },
+
+    // Escalating complaints about uncleaned poop
+    _checkNag(now) {
+      if (!this.pellets.length) { this._nagLevel = 0; return; }
+      if (now < this._nagCooldown) return;
+      if ([STATES.SLEEPING, STATES.NAP, STATES.PLAY_DEAD, STATES.SUBSTANCE].includes(SM.current)) return;
+
+      const oldestAge = now - Math.min(...this.pellets.map(p => p.spawnedAt));
+      const gameMins  = (oldestAge / 1000) * TIME_SCALE / 60;
+
+      let newLevel = 0;
+      if      (gameMins >= 25) newLevel = 4;
+      else if (gameMins >= 15) newLevel = 3;
+      else if (gameMins >= 8)  newLevel = 2;
+      else if (gameMins >= 3)  newLevel = 1;
+
+      if (newLevel > 0 && newLevel >= this._nagLevel) {
+        this._nagLevel = newLevel;
+        // Cooldown shrinks as anger rises: 10 / 7 / 5 / 3 game-minutes
+        const coolMins     = [0, 10, 7, 5, 3][newLevel];
+        this._nagCooldown  = now + (coolMins * 60 * 1000 / TIME_SCALE);
+        this._fireNag(newLevel);
+      }
+    },
+
+    _fireNag(level) {
+      const p = arr => arr[Math.floor(Math.random() * arr.length)];
+      const phrases = [
+        null,
+        [  // level 1 — polite
+          `I notice there is something on the floor that perhaps requires your attention.`,
+          `When you have a moment, there is a small matter on the floor to address.`,
+          `I would appreciate it if you could attend to the floor at your earliest convenience.`,
+          `There is something there. On the floor. I trust you have noticed.`,
+        ],
+        [  // level 2 — annoyed
+          `I must insist you clean up the floor. This is not entirely acceptable.`,
+          `The situation on the floor has not improved. Please deal with it.`,
+          `I asked you once. I should not need to ask again. The floor.`,
+          `I am trying to be patient about the floor. I am finding it difficult.`,
+        ],
+        [  // level 3 — quite irritated
+          `I find the continued presence of that on the floor deeply offensive.`,
+          `How long do you intend to leave that there? This is becoming intolerable.`,
+          `I am losing patience with you. Clean up the floor. Now.`,
+          `That has been there for some time now. I am not pleased. The floor. Please.`,
+        ],
+        [  // level 4 — furious
+          `I am absolutely disgusted. Clean that up immediately or there will be consequences.`,
+          `This is beyond all reason. I will remember this. Clean. The. Floor.`,
+          `I have contacts. Do not test me. The floor. Deal with it. Now. Immediately.`,
+          `This is a health hazard. I am documenting this. Clean the floor this instant.`,
+          `I have set a trap near that area. For your safety, clean it up immediately.`,
+        ],
+      ];
+      Speech.say(p(phrases[level]));
+    },
+
+    _growLegs(pellet) {
+      pellet.hasLegs  = true;
+      pellet.crawlDir = new THREE.Vector3(
+        (Math.random() - 0.5) * 2,
+        0,
+        (Math.random() - 0.5) * 2,
+      ).normalize();
+      const legMat = new THREE.MeshStandardMaterial({ color: 0x2a1505, roughness: 0.9 });
+      for (let j = 0; j < 6; j++) {
+        const leg = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.005, 0.003, 0.065, 4),
+          legMat,
+        );
+        const angle = (j / 6) * Math.PI * 2;
+        leg.position.set(Math.cos(angle) * 0.048, 0, Math.sin(angle) * 0.048);
+        leg.rotation.z = Math.cos(angle) * (Math.PI / 2 - 0.4);
+        leg.rotation.x = Math.sin(angle) * (Math.PI / 2 - 0.4);
+        pellet.mesh.add(leg);
+        pellet.legMeshes.push(leg);
+      }
+    },
+
+    handleClick(clientX, clientY) {
+      const hits = raycastObjects(clientX, clientY, this.pellets.map(p => p.mesh));
+      if (!hits.length) return false;
+      const hitMesh = hits[0].object;
+      const idx     = this.pellets.findIndex(p => p.mesh === hitMesh);
+      if (idx < 0) return false;
+      scene.remove(this.pellets[idx].mesh);
+      this.pellets.splice(idx, 1);
+      appState.stats.poopPickedUp++;
+      if (!this.pellets.length) this._nagLevel = 0;
+      return true;
+    },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 7 — Bug System
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const BugSystem = {
+    bugs: [],
+
+    spawnBug() {
+      if (this.bugs.length >= 3) return;
+      const mesh = this._makeMesh();
+      scene.add(mesh);
+      // Enter from a random surface edge
+      const side = Math.floor(Math.random() * 4);
+      const pos  = new THREE.Vector3();
+      switch (side) {
+        case 0: pos.set(-3.8,  0.02, (Math.random() - 0.5) * 2); break;
+        case 1: pos.set( 3.8,  0.02, (Math.random() - 0.5) * 2); break;
+        case 2: pos.set((Math.random() - 0.5) * 5, 0.02, -2.2);  break;
+        case 3: pos.set((Math.random() - 0.5) * 5, 0.02,  2.2);  break;
+      }
+      mesh.position.copy(pos);
+      const bug = {
+        mesh,
+        vel:        new THREE.Vector3((Math.random() - 0.5), 0, (Math.random() - 0.5)).normalize().multiplyScalar(0.25 + Math.random() * 0.25),
+        dirTimer:   1.5 + Math.random() * 3,
+        state:      'wandering',
+        legPhase:   0,
+      };
+      this.bugs.push(bug);
+    },
+
+    _makeMesh() {
+      const g      = new THREE.Group();
+      const darkM  = new THREE.MeshStandardMaterial({ color: 0x1a150a, roughness: 0.8 });
+      const segGeo = new THREE.SphereGeometry(0.018, 5, 4);
+      for (let i = 0; i < 3; i++) {
+        const seg = new THREE.Mesh(segGeo, darkM);
+        seg.scale.set(1.0, 0.65, 1.2);
+        seg.position.z = (i - 1) * 0.030;
+        g.add(seg);
+      }
+      // 6 legs
+      const legGeo = new THREE.CylinderGeometry(0.004, 0.002, 0.058, 4);
+      for (let s = -1; s <= 1; s += 2) {
+        for (let j = 0; j < 3; j++) {
+          const leg = new THREE.Mesh(legGeo, darkM);
+          leg.position.set(s * 0.034, 0, (j - 1) * 0.024);
+          leg.rotation.z  = s * (Math.PI / 2 - 0.45);
+          g.add(leg);
+        }
+      }
+      return g;
+    },
+
+    update(delta) {
+      for (let i = this.bugs.length - 1; i >= 0; i--) {
+        const bug = this.bugs[i];
+        if (bug.state === 'eaten') { this.bugs.splice(i, 1); continue; }
+        if (!bug.mesh) { this.bugs.splice(i, 1); continue; }
+
+        bug.dirTimer -= delta;
+        if (bug.dirTimer <= 0) {
+          const a = Math.random() * Math.PI * 2;
+          bug.vel.set(Math.cos(a), 0, Math.sin(a)).multiplyScalar(0.2 + Math.random() * 0.3);
+          bug.dirTimer = 1.5 + Math.random() * 3;
+        }
+
+        bug.mesh.position.addScaledVector(bug.vel, delta);
+        bug.mesh.position.y = 0.02;
+        if (bug.vel.lengthSq() > 0) bug.mesh.rotation.y = Math.atan2(bug.vel.x, bug.vel.z);
+
+        // Animate legs
+        bug.legPhase = (bug.legPhase || 0) + delta * 8;
+        const children = bug.mesh.children;
+        for (let k = 3; k < children.length; k++) {
+          children[k].rotation.x = Math.sin(bug.legPhase + k) * 0.25;
+        }
+
+        // Remove if off surface
+        if (Math.abs(bug.mesh.position.x) > 5.5 || Math.abs(bug.mesh.position.z) > 4.5) {
+          scene.remove(bug.mesh);
+          this.bugs.splice(i, 1);
+        }
+      }
+    },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 8 — Food / Item Drag
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const FoodDrag = {
+    active:           false,
+    clone:            null,
+    stateAtDragStart: null,
+    fromPile:         false,
+
+    _doStart(e, sourceEl, fromPile) {
+      this.active           = true;
+      this.fromPile         = fromPile;
+      this.stateAtDragStart = SM.current;
+      this.clone            = sourceEl.cloneNode(true);
+      Object.assign(this.clone.style, {
+        position: 'fixed', pointerEvents: 'none', zIndex: '1000',
+        transform: 'translate(-50%, -50%) scale(1.1)', cursor: 'grabbing',
+        transition: 'none', opacity: '1',
+      });
+      document.body.appendChild(this.clone);
+      this._move(e);
+      e.preventDefault();
+    },
+
+    // Drag from the centre tray (LOTION / SUBSTANCE only)
+    start(e) {
+      if (![STATES.LOTION, STATES.SUBSTANCE].includes(SM.current)) return;
+      this._doStart(e, document.getElementById('food-item'), false);
+    },
+
+    // Drag from the always-visible food pile
+    startPile(e) {
+      const blocked = [STATES.SLEEPING, STATES.NAP, STATES.PLAY_DEAD, STATES.LOTION, STATES.SUBSTANCE];
+      if (blocked.includes(SM.current)) return;
+      this._doStart(e, document.getElementById('food-pile-icon'), true);
+    },
+
+    move(e)  { this._move(e); },
+    _move(e) {
+      if (!this.active || !this.clone) return;
+      const x = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+      const y = e.clientY ?? e.touches?.[0]?.clientY ?? 0;
+      this.clone.style.left = x + 'px';
+      this.clone.style.top  = y + 'px';
+    },
+
+    drop(e) {
+      if (!this.active) return;
+      this.active = false;
+      if (this.clone) { document.body.removeChild(this.clone); this.clone = null; }
+      const x = e.clientX ?? e.changedTouches?.[0]?.clientX ?? 0;
+      const y = e.clientY ?? e.changedTouches?.[0]?.clientY ?? 0;
+
+      if (this.fromPile) {
+        if (raycastHamster(x, y)) {
+          feedHamster();
+        } else {
+          // Place on the floor at drop point
+          const r = new THREE.Raycaster();
+          r.setFromCamera(_screenToNDC(x, y), camera);
+          const hit = new THREE.Vector3();
+          if (r.ray.intersectPlane(floorPlane, hit)) {
+            FloorFood.place(hit);
+          }
+        }
+      } else {
+        // Centre-tray drag (LOTION / SUBSTANCE)
+        if (raycastHamster(x, y) && SM.current === this.stateAtDragStart) {
+          deliverItem(this.stateAtDragStart);
+        }
+      }
+    },
+  };
+
+  // Feed hamster from the food pile — works any time except when unavailable
+  function feedHamster() {
+    const blocked = [STATES.SLEEPING, STATES.NAP, STATES.PLAY_DEAD, STATES.LOTION, STATES.SUBSTANCE];
+    if (blocked.includes(SM.current)) return false;
+    appState.stats.feedCount++;
+    Sounds.eat();
+    const p = arr => arr[Math.floor(Math.random() * arr.length)];
+    setTimeout(() => Speech.say(p([
+      `Thank you. This is acceptable.`,
+      `Mmm. Yes. That will do nicely.`,
+      `Good. You may continue.`,
+      `I accept this offering with measured gratitude.`,
+      `Adequate. Quite adequate.`,
+      `You have my acknowledgement.`,
+      `This is satisfactory.`,
+      `Yes. More of that.`,
+    ])), 250 + Math.floor(Math.random() * 400));
+    if (SM.current !== STATES.EATING) SM.transition(STATES.EATING);
+    return true;
+  }
+
+  function deliverItem(state) {
+    const p = arr => arr[Math.floor(Math.random() * arr.length)];
+    if (state === STATES.LOTION) {
+      appState.stats.lotionCount++;
+      SM.transition(STATES.IDLE);
+      Sounds.lotion();
+      setTimeout(() => Speech.say(p([
+        `Mmm. That is most... satisfactory.`,
+        `Yes. That is exactly what was needed. Thank you.`,
+        `Apply it more thoroughly next time. But this will suffice for now.`,
+        `The lotion has been applied. I am temporarily at ease.`,
+        `Adequate. You may go.`,
+      ])), 300);
+    } else if (state === STATES.SUBSTANCE) {
+      appState.stats.substanceCount++;
+      SM.transition(STATES.SLEEPING, { duration: (15 + Math.random() * 30) * 60 });
+      setTimeout(() => Speech.say(p([
+        `I will sleep now. Do not disturb me under any circumstances.`,
+        `The substance has been received. I require rest. Do not wake me.`,
+        `Good. I will return when I am ready. Do not attempt to rush this process.`,
+      ])), 500);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 8.5 — Floor Food (food placed on the floor from pile)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const FloorFood = {
+    items: [],
+    _geo:  null,
+    _mat:  null,
+
+    _ensure() {
+      if (!this._geo) this._geo = new THREE.SphereGeometry(0.06, 6, 4);
+      if (!this._mat) this._mat = new THREE.MeshLambertMaterial({ color: 0xd4a847 });
+    },
+
+    place(worldPos) {
+      this._ensure();
+      const mesh = new THREE.Mesh(this._geo, this._mat);
+      mesh.position.set(
+        THREE.MathUtils.clamp(worldPos.x, -2.8, 2.8),
+        0.06,
+        THREE.MathUtils.clamp(worldPos.z, -1.5, 1.5),
+      );
+      scene.add(mesh);
+      this.items.push({ mesh });
+      this._save();
+    },
+
+    nearest() {
+      if (this.items.length === 0) return null;
+      let best = null, bestD = Infinity;
+      const hp = hamster.group.position;
+      for (const item of this.items) {
+        const d = hp.distanceTo(item.mesh.position);
+        if (d < bestD) { bestD = d; best = item; }
+      }
+      return best;
+    },
+
+    remove(item) {
+      scene.remove(item.mesh);
+      const idx = this.items.indexOf(item);
+      if (idx >= 0) this.items.splice(idx, 1);
+      this._save();
+    },
+
+    _save() {
+      const data = this.items.map(f => ({ x: f.mesh.position.x, z: f.mesh.position.z }));
+      localStorage.setItem('hamster_floor_food', JSON.stringify(data));
+    },
+
+    loadSaved() {
+      this._ensure();
+      try {
+        const data = JSON.parse(localStorage.getItem('hamster_floor_food') || '[]');
+        for (const { x, z } of data) {
+          const mesh = new THREE.Mesh(this._geo, this._mat);
+          mesh.position.set(x, 0.06, z);
+          scene.add(mesh);
+          this.items.push({ mesh });
+        }
+      } catch (e) { /* ignore malformed data */ }
+    },
+  };
+
+  function updateFoodTray() {
+    const tray = document.getElementById('food-tray');
+    const item = document.getElementById('food-item');
+    // Tray is only shown for LOTION and SUBSTANCE — food pile handles regular feeding
+    const icons = {
+      [STATES.LOTION]:    '🧴',
+      [STATES.SUBSTANCE]: '🌿',
+    };
+    const icon = icons[SM.current];
+    if (icon) { item.textContent = icon; tray.style.display = 'block'; }
+    else       { tray.style.display = 'none'; }
+  }
+
+  function updateFoodPile() {
+    const icon = document.getElementById('food-pile-icon');
+    if (!icon) return;
+    icon.textContent = FOOD_ICONS[appState.foodType] || '🌻';
+    const blocked = [STATES.SLEEPING, STATES.NAP, STATES.PLAY_DEAD, STATES.LOTION, STATES.SUBSTANCE];
+    icon.classList.toggle('unavailable', blocked.includes(SM.current));
+  }
+
+  function updateStatusDot() {
+    const dot = document.getElementById('status-dot');
+    const colors = {
+      [STATES.HUNGRY]:    '#cc6622',
+      [STATES.WORRIED]:   '#cc2222',
+      [STATES.LOTION]:    '#4488cc',
+      [STATES.SUBSTANCE]: '#8844cc',
+      [STATES.SLEEPING]:  '#336633',
+      [STATES.NAP]:       '#445544',
+    };
+    dot.style.background = colors[SM.current] || '#3a2a1a';
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 8.7 — Item Pickup (pick up bugs / floor food / poop, drop or bin)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const ItemPickup = {
+    active:           false,
+    held:             null,    // { kind:'poop'|'food'|'bug', ref, mesh }
+    ghost:            null,    // floating DOM emoji
+    _droppedThisCycle: false,  // guards play-dead wobble click handler
+
+    tryStart(clientX, clientY) {
+      this._droppedThisCycle = false;
+      if (this.active || FoodDrag.active) return false;
+
+      const r = new THREE.Raycaster();
+      r.setFromCamera(_screenToNDC(clientX, clientY), camera);
+
+      // ── Poop pellets ──
+      const poopMeshes = PoopSystem.pellets.map(p => p.mesh);
+      let hits = r.intersectObjects(poopMeshes, false);
+      if (hits.length) {
+        const ref = PoopSystem.pellets.find(p => p.mesh === hits[0].object);
+        if (ref) return this._begin({ kind: 'poop', ref, mesh: ref.mesh }, clientX, clientY);
+      }
+
+      // ── Floor food ──
+      const foodMeshes = FloorFood.items.map(f => f.mesh);
+      hits = r.intersectObjects(foodMeshes, false);
+      if (hits.length) {
+        const ref = FloorFood.items.find(f => f.mesh === hits[0].object);
+        if (ref) return this._begin({ kind: 'food', ref, mesh: ref.mesh }, clientX, clientY);
+      }
+
+      // ── Bugs (Groups — need recursive intersect) ──
+      const bugGroups = BugSystem.bugs
+        .filter(b => b.state === 'wandering' && b.mesh)
+        .map(b => b.mesh);
+      hits = r.intersectObjects(bugGroups, true);
+      if (hits.length) {
+        // Walk up to the scene-level group
+        let node = hits[0].object;
+        while (node.parent && node.parent !== scene) node = node.parent;
+        const ref = BugSystem.bugs.find(b => b.mesh === node);
+        if (ref && ref.state === 'wandering')
+          return this._begin({ kind: 'bug', ref, mesh: node }, clientX, clientY);
+      }
+
+      return false;
+    },
+
+    _begin(item, clientX, clientY) {
+      this.active = true;
+      this.held   = item;
+      item.mesh.visible = false;
+      if (item.kind === 'bug') item.ref.state = 'held';
+
+      // Emoji ghost follows cursor
+      const icons = {
+        poop: '💩',
+        food: FOOD_ICONS[appState.foodType] || '🌻',
+        bug:  '🦗',
+      };
+      this.ghost = document.createElement('div');
+      Object.assign(this.ghost.style, {
+        position: 'fixed', pointerEvents: 'none', zIndex: '1001',
+        transform: 'translate(-50%,-60%)',
+        fontSize: '26px', userSelect: 'none',
+      });
+      this.ghost.textContent = icons[item.kind];
+      document.body.appendChild(this.ghost);
+      this._moveGhost(clientX, clientY);
+
+      // Show bin as a live drop target
+      document.getElementById('bin-zone').classList.add('bin-live');
+      return true;
+    },
+
+    move(clientX, clientY) {
+      if (!this.active) return;
+      this._moveGhost(clientX, clientY);
+      const over = this._overBin(clientX, clientY);
+      document.getElementById('bin-zone').classList.toggle('bin-hover', over);
+    },
+
+    drop(clientX, clientY) {
+      if (!this.active) return;
+      this.active            = false;
+      this._droppedThisCycle = true;
+      if (this.ghost) { document.body.removeChild(this.ghost); this.ghost = null; }
+      const bin = document.getElementById('bin-zone');
+      bin.classList.remove('bin-live', 'bin-hover');
+
+      if (this._overBin(clientX, clientY)) {
+        this._discard();
+      } else if (this.held.kind === 'bug' && raycastHamster(clientX, clientY)) {
+        // Feed bug directly to hamster
+        const bug = this.held.ref;
+        scene.remove(bug.mesh);
+        bug.state = 'eaten';
+        const notEating = ![STATES.SLEEPING, STATES.NAP, STATES.PLAY_DEAD,
+                            STATES.LOTION, STATES.SUBSTANCE].includes(SM.current);
+        if (notEating) SM.transition(STATES.EATING_BUG, { bug });
+      } else {
+        const rc = new THREE.Raycaster();
+        rc.setFromCamera(_screenToNDC(clientX, clientY), camera);
+        const hit = new THREE.Vector3();
+        if (rc.ray.intersectPlane(floorPlane, hit)) {
+          this._placeAt(hit);
+        } else {
+          this._restore();   // off-screen — put back where it was
+        }
+      }
+      this.held = null;
+    },
+
+    _moveGhost(x, y) {
+      if (this.ghost) { this.ghost.style.left = x + 'px'; this.ghost.style.top = y + 'px'; }
+    },
+
+    _overBin(clientX, clientY) {
+      const r = document.getElementById('bin-zone').getBoundingClientRect();
+      return clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom;
+    },
+
+    _discard() {
+      const { kind, ref, mesh } = this.held;
+      scene.remove(mesh);
+      if (kind === 'poop') {
+        const idx = PoopSystem.pellets.indexOf(ref);
+        if (idx >= 0) PoopSystem.pellets.splice(idx, 1);
+        appState.stats.poopPickedUp++;
+        if (!PoopSystem.pellets.length) PoopSystem._nagLevel = 0;
+      } else if (kind === 'food') {
+        const idx = FloorFood.items.indexOf(ref);
+        if (idx >= 0) FloorFood.items.splice(idx, 1);
+      } else if (kind === 'bug') {
+        ref.state = 'eaten';   // BugSystem.update() splices it out next tick
+      }
+    },
+
+    _placeAt(worldPos) {
+      const { kind, ref, mesh } = this.held;
+      const x = THREE.MathUtils.clamp(worldPos.x, -2.8,  2.8);
+      const z = THREE.MathUtils.clamp(worldPos.z, -1.5,  1.5);
+      mesh.visible = true;
+      if (kind === 'poop') {
+        mesh.position.set(x, 0.042, z);
+        // Moving poop resets its age so it doesn't crawl away immediately
+        if (ref.hasLegs) {
+          ref.legMeshes.forEach(l => mesh.remove(l));
+          ref.legMeshes = []; ref.hasLegs = false; ref.crawlDir = null;
+        }
+        ref.spawnedAt = Date.now();
+      } else if (kind === 'food') {
+        mesh.position.set(x, 0.06, z);
+        FloorFood._save();
+      } else if (kind === 'bug') {
+        mesh.position.set(x, 0.02, z);
+        ref.state = 'wandering';
+      }
+    },
+
+    _restore() {
+      if (!this.held) return;
+      this.held.mesh.visible = true;
+      if (this.held.kind === 'bug') this.held.ref.state = 'wandering';
+    },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 9 — Raycasting helpers
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function _screenToNDC(clientX, clientY) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    return new THREE.Vector2(
+      ((clientX - rect.left) / rect.width)  *  2 - 1,
+      -((clientY - rect.top)  / rect.height) *  2 + 1,
+    );
+  }
+
+  function raycastHamster(clientX, clientY) {
+    const r = new THREE.Raycaster();
+    r.setFromCamera(_screenToNDC(clientX, clientY), camera);
+    const meshes = [];
+    hamster.group.traverse(o => { if (o.isMesh) meshes.push(o); });
+    const hits = r.intersectObjects(meshes, false);
+    return hits.length > 0 ? hits[0] : null;
+  }
+
+  function raycastObjects(clientX, clientY, objects) {
+    const r = new THREE.Raycaster();
+    r.setFromCamera(_screenToNDC(clientX, clientY), camera);
+    return r.intersectObjects(objects, false);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 10 — Textures (Phase 1)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function makeFurTexture(baseHex) {
+    const r0 = (baseHex >> 16) & 0xff;
+    const g0 = (baseHex >>  8) & 0xff;
+    const b0 =  baseHex        & 0xff;
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 256;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = `rgb(${r0},${g0},${b0})`;
+    ctx.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 2400; i++) {
+      const x  = Math.random() * 256, y = Math.random() * 256;
+      const a  = (Math.random() - 0.5) * 1.2;
+      const l  = 3 + Math.random() * 7;
+      const dl = (Math.random() - 0.5) * 50;
+      ctx.strokeStyle = `rgba(${Math.round(r0+dl)},${Math.round(g0+dl*0.5)},${Math.round(b0+dl*0.2)},0.45)`;
+      ctx.lineWidth   = 0.7 + Math.random() * 0.8;
+      ctx.beginPath(); ctx.moveTo(x, y);
+      ctx.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l);
+      ctx.stroke();
+    }
+    return new THREE.CanvasTexture(cv);
+  }
+
+  function makeWoodTexture() {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 512;
+    const ctx = cv.getContext('2d');
+    ctx.fillStyle = '#5a3a1a'; ctx.fillRect(0, 0, 512, 512);
+    for (let i = 0; i < 90; i++) {
+      const y  = Math.random() * 512;
+      const dl = (Math.random() - 0.5) * 35;
+      ctx.strokeStyle = `rgba(${Math.round(90+dl)},${Math.round(58+dl*0.6)},${Math.round(26+dl*0.3)},0.55)`;
+      ctx.lineWidth = 0.8 + Math.random() * 2.5;
+      ctx.beginPath(); ctx.moveTo(0, y + (Math.random()-0.5)*20);
+      ctx.bezierCurveTo(128, y+(Math.random()-0.5)*12, 384, y+(Math.random()-0.5)*12, 512, y+(Math.random()-0.5)*20);
+      ctx.stroke();
+    }
+    return new THREE.CanvasTexture(cv);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 11 — Scene Setup (Phase 1)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function initScene() {
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.shadowMap.enabled   = true;
+    renderer.shadowMap.type      = THREE.PCFSoftShadowMap;
+    renderer.toneMapping         = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0d0804);
+    scene.fog = new THREE.Fog(0x0d0804, 10, 22);
+
+    camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+    camera.position.copy(DEFAULT_CAM_POS);
+    camera.lookAt(DEFAULT_CAM_LOOKAT);
+
+    scene.add(new THREE.AmbientLight(0xff9955, 0.5));
+
+    const lamp = new THREE.DirectionalLight(0xffddaa, 1.8);
+    lamp.position.set(-3, 6, 4);
+    lamp.castShadow = true;
+    lamp.shadow.mapSize.set(1024, 1024);
+    Object.assign(lamp.shadow.camera, { near:0.1, far:22, left:-5, right:5, top:5, bottom:-5 });
+    scene.add(lamp);
+
+    const fill = new THREE.PointLight(0xff7722, 0.4, 12);
+    fill.position.set(3, 2, 3); scene.add(fill);
+
+    const woodTex = makeWoodTexture();
+    woodTex.wrapS = woodTex.wrapT = THREE.RepeatWrapping;
+    woodTex.repeat.set(2, 2);
+    const surface = new THREE.Mesh(
+      new THREE.PlaneGeometry(10, 8),
+      new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.85, color: 0x8a6030 }),
+    );
+    surface.rotation.x = -Math.PI / 2;
+    surface.receiveShadow = true;
+    scene.add(surface);
+
+    const wall = new THREE.Mesh(
+      new THREE.PlaneGeometry(10, 6),
+      new THREE.MeshStandardMaterial({ color: 0x0a0604, roughness: 1.0 }),
+    );
+    wall.position.set(0, 3, -4); scene.add(wall);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 12 — Hamster Mesh (Phase 1)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function initHamster() {
+    const furTex    = makeFurTexture(0xc8873a);
+    const furMat    = new THREE.MeshStandardMaterial({ color: 0xc8873a, roughness: 0.8, map: furTex });
+    const bellyMat  = new THREE.MeshStandardMaterial({ color: 0xeac080, roughness: 0.9 });
+    const eyeMat    = new THREE.MeshStandardMaterial({ color: 0x0d0602, roughness: 0.2, metalness: 0.3 });
+    const eyeHiMat  = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.1, emissive: 0xffffff, emissiveIntensity: 0.3 });
+    const earInMat  = new THREE.MeshStandardMaterial({ color: 0xe8a0a0, roughness: 0.9 });
+    const noseMat   = new THREE.MeshStandardMaterial({ color: 0xcc7070, roughness: 0.8 });
+
+    hamster.group = new THREE.Group();
+    scene.add(hamster.group);
+
+    function S(mesh) { mesh.castShadow = true; return mesh; }
+
+    hamster.body = S(new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 12), furMat));
+    hamster.body.scale.set(1.3, 0.9, 1.1);
+    hamster.body.position.set(0, 0.45, 0);
+    hamster.group.add(hamster.body);
+
+    hamster.head = S(new THREE.Mesh(new THREE.SphereGeometry(0.38, 16, 12), furMat));
+    hamster.head.position.set(0, 0.80, 0.38);
+    hamster.group.add(hamster.head);
+
+    hamster.snout = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 7), furMat);
+    hamster.snout.scale.set(1.1, 0.78, 0.85);
+    hamster.snout.position.set(0, -0.06, 0.30);
+    hamster.head.add(hamster.snout);
+
+    const nGeo = new THREE.SphereGeometry(0.038, 6, 4);
+    const nL = new THREE.Mesh(nGeo, noseMat); nL.position.set(-0.045, 0.02, 0.13); hamster.snout.add(nL);
+    const nR = new THREE.Mesh(nGeo, noseMat); nR.position.set( 0.045, 0.02, 0.13); hamster.snout.add(nR);
+
+    function makeEye(side) {
+      const g = new THREE.Group();
+      g.position.set(side * 0.18, 0.06, 0.28);
+      hamster.head.add(g);
+      g.add(new THREE.Mesh(new THREE.SphereGeometry(0.072, 10, 7), eyeMat));
+      const hi = new THREE.Mesh(new THREE.SphereGeometry(0.026, 6, 4), eyeHiMat);
+      hi.position.set(side * -0.025, 0.034, 0.062); g.add(hi);
+      return g;
+    }
+    hamster.eyeL = makeEye(-1); hamster.eyeR = makeEye(1);
+
+    function makeEar(side) {
+      const g = new THREE.Group();
+      g.position.set(side * 0.26, 0.24, 0.04);
+      g.rotation.z = side * -0.15;
+      hamster.head.add(g);
+      const outer = new THREE.Mesh(new THREE.SphereGeometry(0.11, 8, 6), furMat);
+      outer.scale.set(0.65, 1.0, 0.38); g.add(outer);
+      const inner = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), earInMat);
+      inner.scale.set(0.45, 0.75, 0.28); inner.position.z = 0.01; g.add(inner);
+      return g;
+    }
+    hamster.earL = makeEar(-1); hamster.earR = makeEar(1);
+
+    function makeCheek(side) {
+      const c = S(new THREE.Mesh(new THREE.SphereGeometry(0.21, 10, 7), bellyMat));
+      c.position.set(side * 0.34, 0.52, 0.28);
+      c.scale.set(1.0, 0.85, 0.9);
+      hamster.group.add(c); return c;
+    }
+    hamster.cheekL = makeCheek(-1); hamster.cheekR = makeCheek(1);
+
+    hamster.belly = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 7), bellyMat);
+    hamster.belly.scale.set(1.0, 0.75, 0.45);
+    hamster.belly.position.set(0, 0.44, 0.52);
+    hamster.group.add(hamster.belly);
+
+    function makeLeg(x, z, r, len, tilt) {
+      const leg = S(new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 4, 8), furMat));
+      leg.position.set(x, r + len * 0.18, z);
+      leg.rotation.z = tilt;
+      hamster.group.add(leg); return leg;
+    }
+    hamster.legFL = makeLeg(-0.24,  0.30, 0.058, 0.11,  0.22);
+    hamster.legFR = makeLeg( 0.24,  0.30, 0.058, 0.11, -0.22);
+    hamster.legBL = makeLeg(-0.26, -0.24, 0.068, 0.13,  0.18);
+    hamster.legBR = makeLeg( 0.26, -0.24, 0.068, 0.13, -0.18);
+
+    hamster.tail = new THREE.Mesh(new THREE.SphereGeometry(0.065, 6, 4), bellyMat);
+    hamster.tail.position.set(0, 0.36, -0.60);
+    hamster.group.add(hamster.tail);
+
+    hamster.group.position.set(0, 0, 0);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 13 — Eye Tracking (Phase 1)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function getMouseWorld() {
+    raycaster.setFromCamera(mouseNDC, camera);
+    const hit = new THREE.Vector3();
+    return raycaster.ray.intersectPlane(floorPlane, hit) ? hit : null;
+  }
+
+  const _hwp = new THREE.Vector3();
+  const _hwq = new THREE.Quaternion();
+
+  function updateEyeTracking(delta) {
+    if (!eyeTrackingEnabled) return;
+    const target = getMouseWorld();
+    if (!target) return;
+    hamster.head.getWorldPosition(_hwp);
+    const dir = target.clone().sub(_hwp).normalize();
+    hamster.head.getWorldQuaternion(_hwq);
+    const local = dir.clone().applyQuaternion(_hwq.clone().invert());
+    const MAX_E = THREE.MathUtils.degToRad(25);
+    const MAX_H = THREE.MathUtils.degToRad(18);
+    const ey = THREE.MathUtils.clamp(Math.atan2(local.x, local.z),  -MAX_E, MAX_E);
+    const ep = THREE.MathUtils.clamp(Math.atan2(-local.y, local.z), -MAX_E, MAX_E);
+    const lf = 1 - Math.pow(0.002, delta);
+    hamster.eyeL.rotation.y = THREE.MathUtils.lerp(hamster.eyeL.rotation.y, ey, lf);
+    hamster.eyeL.rotation.x = THREE.MathUtils.lerp(hamster.eyeL.rotation.x, ep, lf);
+    hamster.eyeR.rotation.y = THREE.MathUtils.lerp(hamster.eyeR.rotation.y, ey, lf);
+    hamster.eyeR.rotation.x = THREE.MathUtils.lerp(hamster.eyeR.rotation.x, ep, lf);
+    const hy = THREE.MathUtils.clamp(Math.atan2(dir.x, dir.z), -MAX_H, MAX_H);
+    hamster.head.rotation.y = THREE.MathUtils.lerp(hamster.head.rotation.y, hy, lf * 0.25);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 14 — Animation Tick
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function tickAnimation(t, delta) {
+    const sleeping = SM.current === STATES.SLEEPING || SM.current === STATES.NAP;
+
+    // Breathing (overridden by sleeping state which sets its own)
+    if (!sleeping && SM.current !== STATES.EATING) {
+      hamster.body.scale.y = 0.9 + Math.sin(t * 0.3 * Math.PI * 2) * 0.03;
+    }
+
+    // Subtle whole-group float (only when not in special pose)
+    if (SM.current === STATES.IDLE || SM.current === STATES.LOOKING) {
+      hamster.group.position.y = Math.sin(t * 0.6 * Math.PI * 2) * 0.003;
+    }
+
+    // Blink (skip when sleeping or blinking is irrelevant)
+    if (!sleeping && SM.current !== STATES.PLAY_DEAD) {
+      blinkTimer -= delta;
+      if (blinkTimer <= 0 && blinkPhase === 'open') { blinkPhase = 'closing'; blinkT = 0; }
+      if (blinkPhase === 'closing') {
+        blinkT += delta / 0.07;
+        const p = Math.min(blinkT, 1);
+        hamster.eyeL.scale.y = 1 - p * 0.92;
+        hamster.eyeR.scale.y = 1 - p * 0.92;
+        if (blinkT >= 1) { blinkPhase = 'opening'; blinkT = 0; }
+      }
+      if (blinkPhase === 'opening') {
+        blinkT += delta / 0.09;
+        const p = Math.min(blinkT, 1);
+        hamster.eyeL.scale.y = 0.08 + p * 0.92;
+        hamster.eyeR.scale.y = 0.08 + p * 0.92;
+        if (blinkT >= 1) {
+          hamster.eyeL.scale.y = hamster.eyeR.scale.y = 1;
+          blinkPhase = 'open';
+          blinkTimer = 3 + Math.random() * 5;
+        }
+      }
+    }
+
+    // Walk animation (legs swing when moving)
+    if (isWalking) {
+      walkTime += delta;
+      const freq  = SM.current === STATES.WORRIED ? 5.5 : 3.5;
+      const amp   = 0.42;
+      const p     = walkTime * freq * Math.PI * 2;
+      hamster.legFL.rotation.x =  Math.sin(p) * amp;
+      hamster.legBR.rotation.x =  Math.sin(p) * amp;
+      hamster.legFR.rotation.x = -Math.sin(p) * amp;
+      hamster.legBL.rotation.x = -Math.sin(p) * amp;
+      hamster.body.position.y  = 0.45 + Math.abs(Math.sin(p * 2)) * 0.014;
+    } else {
+      // Return legs to rest
+      const lf = 1 - Math.pow(0.01, delta);
+      hamster.legFL.rotation.x = THREE.MathUtils.lerp(hamster.legFL.rotation.x, 0, lf);
+      hamster.legFR.rotation.x = THREE.MathUtils.lerp(hamster.legFR.rotation.x, 0, lf);
+      hamster.legBL.rotation.x = THREE.MathUtils.lerp(hamster.legBL.rotation.x, 0, lf);
+      hamster.legBR.rotation.x = THREE.MathUtils.lerp(hamster.legBR.rotation.x, 0, lf);
+      if (SM.current !== STATES.EATING) {
+        hamster.body.position.y = THREE.MathUtils.lerp(hamster.body.position.y, 0.45, lf);
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 15 — Camera Update
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function updateCamera(delta) {
+    const lf = 1 - Math.pow(0.008, delta);
+    camera.position.lerp(camTargetPos, lf);
+    camCurrentLookAt.lerp(camTargetLookAt, lf);
+    camera.lookAt(camCurrentLookAt);
+
+    // Jitter during worried
+    if (SM.current === STATES.WORRIED) {
+      camera.position.x += (Math.random() - 0.5) * 0.007;
+      camera.position.y += (Math.random() - 0.5) * 0.004;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 16 — Main Loop
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function mainLoop(ts) {
+    requestAnimationFrame(mainLoop);
+
+    const delta = Math.min((ts - lastTS) / 1000, 0.1);
+    lastTS       = ts;
+    totalTime   += delta;
+
+    SM.update(delta);
+    Scheduler.tick();
+    tickAnimation(totalTime, delta);
+    updateEyeTracking(delta);
+    PoopSystem.update(delta);
+    BugSystem.update(delta);
+
+    renderer.render(scene, camera);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 17 — Input
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  window.addEventListener('mousemove', (e) => {
+    mouseNDC.x =  (e.clientX / window.innerWidth)  * 2 - 1;
+    mouseNDC.y = -(e.clientY / window.innerHeight)  * 2 + 1;
+    FoodDrag.move(e);
+    ItemPickup.move(e.clientX, e.clientY);
+  });
+  window.addEventListener('mouseup', (e) => {
+    FoodDrag.drop(e);
+    ItemPickup.drop(e.clientX, e.clientY);
+  });
+  window.addEventListener('touchmove', (e) => {
+    FoodDrag.move(e);
+    if (e.touches[0]) ItemPickup.move(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: false });
+  window.addEventListener('touchend', (e) => {
+    FoodDrag.drop(e);
+    const t = e.changedTouches[0];
+    if (t) ItemPickup.drop(t.clientX, t.clientY);
+  });
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  // Visibility: pause RAF accumulation
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) lastTS = performance.now();
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 18 — UI Init
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function initUI() {
+    // Centre tray (LOTION / SUBSTANCE)
+    const item = document.getElementById('food-item');
+    item.addEventListener('mousedown',  (e) => FoodDrag.start(e));
+    item.addEventListener('touchstart', (e) => FoodDrag.start(e), { passive: false });
+
+    // Always-visible food pile (bottom-right)
+    const pile = document.getElementById('food-pile-icon');
+    pile.addEventListener('mousedown',  (e) => FoodDrag.startPile(e));
+    pile.addEventListener('touchstart', (e) => FoodDrag.startPile(e), { passive: false });
+
+    // Canvas: mousedown to pick up world items (bugs / food / poop)
+    renderer.domElement.addEventListener('mousedown', (e) => {
+      if (e.button === 0) ItemPickup.tryStart(e.clientX, e.clientY);
+    });
+    renderer.domElement.addEventListener('touchstart', (e) => {
+      if (e.touches[0]) ItemPickup.tryStart(e.touches[0].clientX, e.touches[0].clientY);
+    }, { passive: true });
+
+    // Canvas: click for play-dead wobble (guarded so pickup drops don't trigger it)
+    renderer.domElement.addEventListener('click', (e) => {
+      if (ItemPickup._droppedThisCycle) return;
+      if (SM.current === STATES.PLAY_DEAD && raycastHamster(e.clientX, e.clientY)) {
+        wobbleActive = true;
+        wobbleT      = 0;
+      }
+    });
+
+    // Double-click: summon to front
+    renderer.domElement.addEventListener('dblclick', () => {
+      if ([STATES.SLEEPING, STATES.PLAY_DEAD].includes(SM.current)) return;
+      wanderPath = [new THREE.Vector3(0, 0, 0.3)];
+      wanderIdx  = 0;
+      SM.transition(STATES.WANDERING, { summonToLook: true });
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 19 — Dev Console
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const DevConsole = {
+    el: null, out: null, inp: null,
+    history: [], histIdx: -1, isOpen: false,
+
+    init() {
+      this.el  = document.getElementById('dev-console');
+      this.out = document.getElementById('dev-output');
+      this.inp = document.getElementById('dev-input');
+
+      this.inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const cmd = this.inp.value.trim();
+          if (cmd) {
+            this.history.unshift(cmd);
+            this.histIdx = -1;
+            this._line(`> ${cmd}`, 'cmd');
+            this.exec(cmd);
+            this.inp.value = '';
+          }
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          this.histIdx = Math.min(this.histIdx + 1, this.history.length - 1);
+          this.inp.value = this.history[this.histIdx] ?? '';
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          this.histIdx = Math.max(this.histIdx - 1, -1);
+          this.inp.value = this.histIdx >= 0 ? this.history[this.histIdx] : '';
+        } else if (e.key === 'Escape') {
+          this.toggle();
+        }
+        e.stopPropagation();
+      });
+
+      // Backtick opens console; Escape (handled above in input keydown) closes it
+      window.addEventListener('keydown', (e) => {
+        if (e.key === '`' && !this.isOpen) { e.preventDefault(); this.toggle(); }
+      });
+
+      this._line('dev console  —  type help', 'muted');
+    },
+
+    toggle() {
+      this.isOpen = !this.isOpen;
+      this.el.classList.toggle('open', this.isOpen);
+      document.body.classList.toggle('console-open', this.isOpen);
+      if (this.isOpen) {
+        this.inp.focus();
+        document.getElementById('dev-toggle-hint').style.display = 'none';
+      } else {
+        document.getElementById('dev-toggle-hint').style.display = '';
+      }
+    },
+
+    _line(text, cls = '') {
+      const d = document.createElement('div');
+      if (cls) d.classList.add(cls);
+      d.textContent = text;
+      this.out.appendChild(d);
+      this.out.scrollTop = this.out.scrollHeight;
+    },
+    ok  (msg) { this._line(msg, 'ok');   },
+    err (msg) { this._line(msg, 'err');  },
+    info(msg) { this._line(msg, 'info'); },
+
+    exec(raw) {
+      const parts = raw.trim().split(/\s+/);
+      const verb  = parts[0].toLowerCase();
+      const arg   = parts[1];
+      const argN  = parseFloat(arg);
+
+      const noInterrupt = () => [STATES.SLEEPING, STATES.PLAY_DEAD].includes(SM.current);
+
+      const CMDS = {
+        help: () => {
+          this.info('── states ──────────────────────────────────────────');
+          this.info('  idle  wander  out  look  hungry  lotion  substance');
+          this.info('  worried  sleep [min]  nap  dead  poop  eat  eating_bug');
+          this.info('── utils ───────────────────────────────────────────');
+          this.info('  bug         spawn a bug');
+          this.info('  legs        grow legs on all poop pellets now');
+          this.info('  scale [n]   get/set TIME_SCALE');
+          this.info('  pace [n]    get/set paceConsole (× paceAuto = event rate multiplier)');
+          this.info('  stats       current state & counters');
+          this.info('  pos         hamster position & rotation');
+          this.info('  cam         camera position');
+          this.info('  reset       idle + center + clear bugs & poop');
+          this.info('  clear       wipe all localStorage (requires confirmation)');
+          this.info('  eye [on|off] force eye-tracking on/off');
+          this.info('  walk [on|off] force walk animation on/off');
+          this.info('── speech ──────────────────────────────────────────');
+          this.info('  name [n]    get/set user name');
+          this.info('  speak       trigger a random Markov utterance');
+          this.info('  say [text]  speak arbitrary text (with name prefix)');
+          this.info('  armed       trigger a gun/traps/police remark');
+          this.info('  verse       trigger a religious verse quotation');
+        },
+
+        idle:      () => { SM.transition(STATES.IDLE);                                                          this.ok('→ idle'); },
+        wander:    () => { startWander(false);                                                                   this.ok('→ wandering'); },
+        out:       () => { startWander(true);                                                                    this.ok('→ wander (out of shot)'); },
+        look:      () => { SM.transition(STATES.LOOKING, { duration: 30 + Math.random() * 60 });                this.ok('→ looking'); },
+        hungry:    () => { SM.transition(STATES.HUNGRY);                                                         this.ok('→ hungry — drag food onto hamster'); },
+        lotion:    () => { SM.transition(STATES.LOTION);                                                         this.ok('→ lotion demand — drag 🧴 onto hamster'); },
+        substance: () => { SM.transition(STATES.SUBSTANCE);                                                      this.ok('→ substance demand — drag 🌿 onto hamster'); },
+        worried:   () => { SM.transition(STATES.WORRIED,  { duration: 30 + Math.random() * 45 });               this.ok('→ worried'); },
+        sleep:     () => { const m = isNaN(argN) ? 1 : argN; SM.transition(STATES.SLEEPING, { duration: m*60 }); this.ok(`→ sleeping ${m} min`); },
+        nap:       () => { SM.transition(STATES.NAP,  { duration: 15 + Math.random() * 20 });                   this.ok('→ nap'); },
+        dead:      () => { SM.transition(STATES.PLAY_DEAD, { duration: 30 });                                    this.ok('→ play dead — click hamster to wobble'); },
+        poop:      () => { SM.transition(STATES.POOPING);                                                        this.ok('→ pooping'); },
+        eat:       () => { SM.transition(STATES.EATING);                                                         this.ok('→ eating'); },
+        eating_bug:() => {
+          const bug = BugSystem.bugs[0];
+          SM.transition(STATES.EATING_BUG, bug ? { bug } : {});
+          this.ok('→ eating bug' + (bug ? '' : ' (no bugs present)'));
+        },
+
+        bug: () => {
+          BugSystem.spawnBug();
+          this.ok(`→ bug spawned  (total: ${BugSystem.bugs.length})`);
+        },
+
+        legs: () => {
+          const n = PoopSystem.pellets.filter(p => !p.hasLegs).length;
+          PoopSystem.pellets.forEach(p => { if (!p.hasLegs) PoopSystem._growLegs(p); });
+          this.ok(`→ grew legs on ${n} pellet(s)`);
+        },
+
+        scale: () => {
+          if (!isNaN(argN) && argN > 0) {
+            TIME_SCALE = argN;
+            this.ok(`TIME_SCALE = ${TIME_SCALE}  (effective pace = ${pace().toFixed(2)}x)`);
+          } else {
+            this.info(`TIME_SCALE = ${TIME_SCALE}  (1 = real time, 720 = 1s per 12min)`);
+          }
+        },
+
+        pace: () => {
+          if (!isNaN(argN) && argN > 0) {
+            paceConsole = argN;
+            this.ok(`paceConsole = ${paceConsole}  paceAuto = ${paceAuto().toFixed(2)}  total = ${pace().toFixed(2)}`);
+          } else {
+            this.info(`paceConsole: ${paceConsole}  paceAuto: ${paceAuto().toFixed(2)}  total: ${pace().toFixed(2)}`);
+            this.info(`  (events scheduled at TIME_SCALE × pace = ${(TIME_SCALE * pace()).toFixed(1)}x real time)`);
+          }
+        },
+
+        stats: () => {
+          this.info(`state: ${SM.current}  timer: ${SM.timer.toFixed(1)}s`);
+          this.info(`eyeTracking: ${eyeTrackingEnabled}  isWalking: ${isWalking}`);
+          this.info(`feeds: ${appState.stats.feedCount}  lotion: ${appState.stats.lotionCount}  substance: ${appState.stats.substanceCount}  poop: ${appState.stats.poopPickedUp}`);
+          this.info(`pellets: ${PoopSystem.pellets.length}  bugs: ${BugSystem.bugs.length}`);
+          this.info(`wander path: ${wanderPath.length} pts, idx ${wanderIdx}`);
+          this.info(`scheduler events: ${Scheduler.events.map(e => e.id).join(', ')}`);
+          this.info(`voice: ${Speech.voice ? Speech.voice.name : '(none)'}  name: ${appState.userName}`);
+          this.info(`paceConsole: ${paceConsole}  paceAuto: ${paceAuto().toFixed(2)}  total: ${pace().toFixed(2)}`);
+          this.info(`session uptime: ${_fmtTime(sessionSec())}  total uptime: ${_fmtTime(totalSec())}`);
+          this.info(`first run: ${appState.firstRun ? Persist.daysSinceFirstRun().toFixed(1) + ' days ago' : 'never'}`);
+          this.info(`milestones reached: ${appState.milestones.length > 0 ? appState.milestones.join(', ') : '(none)'}`);
+        },
+
+        pos: () => {
+          const p = hamster.group.position;
+          const r = hamster.group.rotation;
+          this.info(`pos  x:${p.x.toFixed(2)}  y:${p.y.toFixed(2)}  z:${p.z.toFixed(2)}`);
+          this.info(`rot  y:${(r.y * 180/Math.PI).toFixed(1)}°  z:${(r.z * 180/Math.PI).toFixed(1)}°`);
+        },
+
+        cam: () => {
+          const p = camera.position;
+          this.info(`cam  x:${p.x.toFixed(2)}  y:${p.y.toFixed(2)}  z:${p.z.toFixed(2)}`);
+          this.info(`target  x:${camTargetPos.x.toFixed(2)}  y:${camTargetPos.y.toFixed(2)}  z:${camTargetPos.z.toFixed(2)}`);
+        },
+
+        eye: () => {
+          if (arg === 'on')  { eyeTrackingEnabled = true;  this.ok('eye tracking: on');  }
+          else if (arg === 'off') { eyeTrackingEnabled = false; this.ok('eye tracking: off'); }
+          else this.info(`eye tracking: ${eyeTrackingEnabled}`);
+        },
+
+        walk: () => {
+          if (arg === 'on')  { isWalking = true;  this.ok('walk: on');  }
+          else if (arg === 'off') { isWalking = false; this.ok('walk: off'); }
+          else this.info(`isWalking: ${isWalking}`);
+        },
+
+        reset: () => {
+          SM.transition(STATES.IDLE);
+          hamster.group.position.set(0, 0, 0);
+          hamster.group.rotation.set(0, 0, 0);
+          camTargetPos.copy(DEFAULT_CAM_POS);
+          camTargetLookAt.copy(DEFAULT_CAM_LOOKAT);
+          PoopSystem.pellets.forEach(p => scene.remove(p.mesh));
+          PoopSystem.pellets.length = 0;
+          BugSystem.bugs.forEach(b => { if (b.mesh) scene.remove(b.mesh); });
+          BugSystem.bugs.length = 0;
+          this.ok('→ reset: idle, centered, scene cleared');
+        },
+
+        clear: () => {
+          if (this._clearPending) {
+            // Confirmed — wipe everything
+            ['hamster_name','hamster_first_run','hamster_milestones',
+             'hamster_food','hamster_total_uptime','hamster_floor_food'].forEach(k => localStorage.removeItem(k));
+            this.ok('all data cleared — reloading…');
+            setTimeout(() => location.reload(), 800);
+          } else {
+            this._clearPending = true;
+            setTimeout(() => { this._clearPending = false; }, 8000);
+            this.err('WARNING: this will erase all saved data (name, history, uptime).');
+            this.err('type  clear  again within 8 seconds to confirm, or do nothing to cancel.');
+          }
+        },
+
+        name: () => {
+          if (parts.length > 1) {
+            const n = parts.slice(1).join(' ').trim();
+            Persist.saveName(n);
+            this.ok(`name set to: ${appState.userName}`);
+          } else {
+            this.info(`name: ${appState.userName}  |  first run: ${appState.firstRun || 'not set'}`);
+            this.info(`days elapsed: ${Persist.daysSinceFirstRun().toFixed(2)}`);
+            this.info(`milestones: ${appState.milestones.join(', ') || '(none)'}`);
+          }
+        },
+
+        verse:  () => { Verses.speak(); this.ok('→ verse quotation'); },
+        armed:  () => { Scheduler.events.find(e => e.id === 'armed_remarks')?.callback(); this.ok('→ armed remark'); },
+        speak: () => { Speech.sayRandom(); this.ok('→ random utterance'); },
+
+        say: () => {
+          if (parts.length > 1) {
+            Speech.say(parts.slice(1).join(' '));
+          } else {
+            this.err('usage: say <text>');
+          }
+        },
+      };
+
+      const fn = CMDS[verb];
+      if (fn) fn();
+      else this.err(`unknown: "${verb}"  —  type help`);
+    },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 19.5 — Settings Menu
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const Menu = {
+    isOpen: false,
+
+    init() {
+      document.getElementById('menu-btn').addEventListener('click', () => this.toggle());
+      document.getElementById('menu-close').addEventListener('click', () => this.close());
+
+      // Name save
+      const nameSave = () => {
+        const val = document.getElementById('menu-name-input').value.trim();
+        if (!val) return;
+        Persist.saveName(val);
+        this.close();
+        setTimeout(() => Speech.say(`Very well. I shall address you as ${appState.userName} from now on.`), 400);
+      };
+      document.getElementById('menu-name-save').addEventListener('click', nameSave);
+      document.getElementById('menu-name-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') nameSave();
+      });
+
+      // Food selection
+      document.getElementById('menu-food').addEventListener('change', e => {
+        appState.foodType = e.target.value;
+        localStorage.setItem('hamster_food', appState.foodType);
+        updateFoodTray();
+        updateFoodPile();
+      });
+
+      // Close on backdrop click
+      document.getElementById('menu-panel').addEventListener('click', e => {
+        if (e.target === document.getElementById('menu-panel')) this.close();
+      });
+
+      // Clear data — two-step confirmation
+      const clearBtn     = document.getElementById('menu-clear');
+      const clearConfirm = document.getElementById('menu-clear-confirm');
+      const clearYes     = document.getElementById('menu-clear-yes');
+      const clearNo      = document.getElementById('menu-clear-no');
+      clearBtn.addEventListener('click', () => {
+        clearConfirm.style.display = 'block';
+        clearBtn.style.display     = 'none';
+      });
+      clearYes.addEventListener('click', () => {
+        ['hamster_name','hamster_first_run','hamster_milestones','hamster_food','hamster_total_uptime','hamster_floor_food']
+          .forEach(k => localStorage.removeItem(k));
+        location.reload();
+      });
+      clearNo.addEventListener('click', () => {
+        clearConfirm.style.display = 'none';
+        clearBtn.style.display     = '';
+      });
+
+      // Esc key opens/closes this menu (when dev console is not open)
+      window.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && !DevConsole.isOpen) {
+          e.preventDefault();
+          this.toggle();
+        }
+      });
+    },
+
+    open() {
+      this.isOpen = true;
+      document.getElementById('menu-name-input').value = appState.userName;
+      document.getElementById('menu-food').value = appState.foodType;
+      document.getElementById('menu-panel').classList.add('open');
+      document.getElementById('menu-name-input').focus();
+    },
+
+    close() {
+      this.isOpen = false;
+      document.getElementById('menu-panel').classList.remove('open');
+      // Reset clear-confirm state
+      document.getElementById('menu-clear-confirm').style.display = 'none';
+      document.getElementById('menu-clear').style.display         = '';
+    },
+
+    toggle() { this.isOpen ? this.close() : this.open(); },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 20 — Init
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function showNamePrompt() {
+    const overlay = document.getElementById('name-prompt');
+    const input   = document.getElementById('name-input');
+    const button  = document.getElementById('name-submit');
+    overlay.classList.remove('hidden');
+    setTimeout(() => input.focus(), 80);
+
+    const submit = () => {
+      const name = input.value.trim();
+      if (!name) return;
+      Persist.saveName(name);
+      overlay.classList.add('hidden');
+      setTimeout(() => {
+        const greetings = [
+          `I have been waiting for you.`,
+          `At last. I was beginning to wonder.`,
+          `Good. Now we may begin.`,
+          `I am glad you are here. I have things to tell you.`,
+        ];
+        Speech.say(greetings[Math.floor(Math.random() * greetings.length)]);
+      }, 1500);
+    };
+
+    button.addEventListener('click', submit);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  }
+
+  function init() {
+    Persist.load();
+    initScene();
+    initHamster();
+    PoopSystem.init();
+    FloorFood.loadSaved();
+    initUI();
+    setupScheduler();
+    DevConsole.init();
+    Speech.init();
+    Menu.init();
+    updateFoodTray();
+    updateFoodPile();
+    updateStatusDot();
+    // Unlock Web Audio on first interaction (browser autoplay policy)
+    window.addEventListener('pointerdown', () => Sounds.unlock(), { once: true });
+    // Save uptime every 60s and on page close
+    setInterval(_saveUptime, 60_000);
+    window.addEventListener('visibilitychange', () => { if (document.hidden) _saveUptime(); });
+    window.addEventListener('pagehide', _saveUptime);
+
+    // Returning users get a pace boost so events catch up after absence
+    _paceAutoInitial = localStorage.getItem('hamster_name') ? 4.0 : 1.0;
+    _paceAutoStart   = Date.now();
+
+    if (!localStorage.getItem('hamster_name')) {
+      showNamePrompt();
+    } else {
+      Milestones.check();
+      // Greet returning user
+      const greetings = [
+        `I have been expecting you.`,
+        `You have returned. Good.`,
+        `Ah. There you are. I have been waiting.`,
+        `Good. You are here. There is much I need to tell you.`,
+      ];
+      setTimeout(() => Speech.say(greetings[Math.floor(Math.random() * greetings.length)]), 4000);
+    }
+
+    requestAnimationFrame((ts) => { lastTS = ts; mainLoop(ts); });
+  }
+
+  init();
+  </script>
+</body>
+</html>
