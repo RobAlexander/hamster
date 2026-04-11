@@ -2551,15 +2551,16 @@ I find myself increasingly concerned about the developments I have been observin
           e.preventDefault();
           this.histIdx = Math.max(this.histIdx - 1, -1);
           this.inp.value = this.histIdx >= 0 ? this.history[this.histIdx] : '';
-        } else if (e.key === 'Escape') {
+        } else if (e.key === 'Escape' || e.key === '`') {
+          e.preventDefault();
           this.toggle();
         }
         e.stopPropagation();
       });
 
-      // Backtick opens console; Escape (handled above in input keydown) closes it
+      // Backtick toggles console open/closed
       window.addEventListener('keydown', (e) => {
-        if (e.key === '`' && !this.isOpen) { e.preventDefault(); this.toggle(); }
+        if (e.key === '`') { e.preventDefault(); this.toggle(); }
       });
 
       this._line('dev console  —  type help', 'muted');
