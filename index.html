@@ -378,6 +378,24 @@
       const food = localStorage.getItem('hamster_food');
       if (food && FOOD_ICONS[food]) appState.foodType = food;
       _savedUptimeSec = parseFloat(localStorage.getItem('hamster_total_uptime') || '0');
+      const stats = JSON.parse(localStorage.getItem('hamster_stats') || 'null');
+      if (stats) Object.assign(appState.stats, stats);
+    },
+
+    saveStats() {
+      localStorage.setItem('hamster_stats', JSON.stringify(appState.stats));
+    },
+
+    savePosition() {
+      const p = hamster.group.position, r = hamster.group.rotation;
+      localStorage.setItem('hamster_pos', JSON.stringify({ x: p.x, z: p.z, ry: r.y }));
+    },
+
+    loadPosition() {
+      try {
+        const d = JSON.parse(localStorage.getItem('hamster_pos') || 'null');
+        if (d) { hamster.group.position.set(d.x, 0, d.z); hamster.group.rotation.y = d.ry; }
+      } catch (e) { /* ignore */ }
     },
 
     saveName(name) {
@@ -1689,6 +1707,7 @@ I find myself increasingly concerned about the developments I have been observin
       mesh.position.y  = 0.042;
       scene.add(mesh);
       this.pellets.push({ mesh, spawnedAt: Date.now(), hasLegs: false, legMeshes: [], crawlDir: null });
+      this._save();
     },
 
     update(delta) {
@@ -1803,8 +1822,35 @@ I find myself increasingly concerned about the developments I have been observin
       scene.remove(this.pellets[idx].mesh);
       this.pellets.splice(idx, 1);
       appState.stats.poopPickedUp++;
+      Persist.saveStats();
       if (!this.pellets.length) this._nagLevel = 0;
+      this._save();
       return true;
+    },
+
+    _save() {
+      const data = this.pellets.map(p => ({
+        x: p.mesh.position.x, z: p.mesh.position.z, spawnedAt: p.spawnedAt,
+      }));
+      localStorage.setItem('hamster_poop', JSON.stringify(data));
+    },
+
+    loadSaved() {
+      try {
+        const data = JSON.parse(localStorage.getItem('hamster_poop') || '[]');
+        for (const { x, z, spawnedAt } of data) {
+          const geo  = new THREE.SphereGeometry(0.042, 6, 4);
+          const mesh = new THREE.Mesh(geo, this.poopMat);
+          mesh.castShadow = true;
+          mesh.position.set(x, 0.042, z);
+          scene.add(mesh);
+          const pellet = { mesh, spawnedAt, hasLegs: false, legMeshes: [], crawlDir: null };
+          this.pellets.push(pellet);
+          // Restore legs if old enough
+          const age = Date.now() - spawnedAt;
+          if (age > 3600 * 1000 / TIME_SCALE) this._growLegs(pellet);
+        }
+      } catch (e) { /* ignore malformed data */ }
     },
   };
 
@@ -2064,6 +2110,49 @@ I find myself increasingly concerned about the developments I have been observin
       );
       scene.add(mesh);
       this.marks.push({ mesh, mat, born: Date.now() });
+      this._save();
+    },
+
+    _save() {
+      const data = this.marks.map(m => ({
+        x: m.mesh.position.x, z: m.mesh.position.z,
+        rz: m.mesh.rotation.z, born: m.born,
+      }));
+      localStorage.setItem('hamster_damage', JSON.stringify(data));
+    },
+
+    loadSaved() {
+      try {
+        const FADE_START = 25_000, FADE_DUR = 100_000;
+        const now  = Date.now();
+        const data = JSON.parse(localStorage.getItem('hamster_damage') || '[]');
+        for (const { x, z, rz, born } of data) {
+          const age = now - born;
+          if (age >= FADE_START + FADE_DUR) continue; // already gone
+          const opacity = 0.72 * Math.max(0, 1 - Math.max(0, age - FADE_START) / FADE_DUR);
+          // Rebuild the canvas texture (simple scratch pattern, doesn't need to match exactly)
+          const cv  = document.createElement('canvas');
+          cv.width  = cv.height = 128;
+          const ctx = cv.getContext('2d');
+          ctx.clearRect(0, 0, 128, 128);
+          ctx.strokeStyle = 'rgba(10,4,0,0.75)'; ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+          for (let i = 0; i < 3; i++) {
+            const ang = (Math.random()-0.5)*0.9 + Math.PI/2, len = 22 + Math.random()*40;
+            const cx2 = 64+(Math.random()-0.5)*44, cy2 = 64+(Math.random()-0.5)*44;
+            ctx.beginPath();
+            ctx.moveTo(cx2-Math.cos(ang)*len/2, cy2-Math.sin(ang)*len/2);
+            ctx.lineTo(cx2+Math.cos(ang)*len/2, cy2+Math.sin(ang)*len/2);
+            ctx.stroke();
+          }
+          const mat  = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, opacity, depthWrite: false });
+          const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.58), mat);
+          mesh.rotation.x = -Math.PI / 2;
+          mesh.rotation.z = rz;
+          mesh.position.set(x, 0.001, z);
+          scene.add(mesh);
+          this.marks.push({ mesh, mat, born });
+        }
+      } catch (e) { /* ignore malformed data */ }
     },
 
     update() {
@@ -2078,6 +2167,7 @@ I find myself increasingly concerned about the developments I have been observin
           if (m.mat.opacity <= 0) {
             scene.remove(m.mesh);
             this.marks.splice(i, 1);
+            this._save();
           }
         }
       }
@@ -2262,6 +2352,7 @@ I find myself increasingly concerned about the developments I have been observin
     const blocked = [STATES.SLEEPING, STATES.NAP, STATES.PLAY_DEAD, STATES.LOTION, STATES.SUBSTANCE];
     if (blocked.includes(SM.current)) return false;
     appState.stats.feedCount++;
+    Persist.saveStats();
     Sounds.eat();
     const p = arr => arr[Math.floor(Math.random() * arr.length)];
     setTimeout(() => Speech.say(p([
@@ -2282,6 +2373,7 @@ I find myself increasingly concerned about the developments I have been observin
     const p = arr => arr[Math.floor(Math.random() * arr.length)];
     if (state === STATES.LOTION) {
       appState.stats.lotionCount++;
+      Persist.saveStats();
       SM.transition(STATES.IDLE);
       Sounds.lotion();
       setTimeout(() => Speech.say(p([
@@ -2293,6 +2385,7 @@ I find myself increasingly concerned about the developments I have been observin
       ])), 300);
     } else if (state === STATES.SUBSTANCE) {
       appState.stats.substanceCount++;
+      Persist.saveStats();
       SM.transition(STATES.SLEEPING, { duration: (15 + Math.random() * 30) * 60 });
       setTimeout(() => Speech.say(p([
         `I will sleep now. Do not disturb me under any circumstances.`,
@@ -2531,7 +2624,9 @@ I find myself increasingly concerned about the developments I have been observin
         const idx = PoopSystem.pellets.indexOf(ref);
         if (idx >= 0) PoopSystem.pellets.splice(idx, 1);
         appState.stats.poopPickedUp++;
+        Persist.saveStats();
         if (!PoopSystem.pellets.length) PoopSystem._nagLevel = 0;
+        PoopSystem._save();
       } else if (kind === 'food') {
         const idx = FloorFood.items.indexOf(ref);
         if (idx >= 0) FloorFood.items.splice(idx, 1);
@@ -3213,7 +3308,8 @@ I find myself increasingly concerned about the developments I have been observin
           if (this._clearPending) {
             // Confirmed — wipe everything
             ['hamster_name','hamster_first_run','hamster_milestones',
-             'hamster_food','hamster_total_uptime','hamster_floor_food'].forEach(k => localStorage.removeItem(k));
+             'hamster_food','hamster_total_uptime','hamster_floor_food',
+             'hamster_stats','hamster_poop','hamster_damage','hamster_pos'].forEach(k => localStorage.removeItem(k));
             this.ok('all data cleared — reloading…');
             setTimeout(() => location.reload(), 800);
           } else {
@@ -3375,7 +3471,10 @@ I find myself increasingly concerned about the developments I have been observin
     initScene();
     initHamster();
     PoopSystem.init();
+    PoopSystem.loadSaved();
     FloorFood.loadSaved();
+    FloorDamage.loadSaved();
+    Persist.loadPosition();
     initUI();
     setupScheduler();
     DevConsole.init();
@@ -3386,10 +3485,10 @@ I find myself increasingly concerned about the developments I have been observin
     updateStatusDot();
     // Unlock Web Audio on first interaction (browser autoplay policy)
     window.addEventListener('pointerdown', () => Sounds.unlock(), { once: true });
-    // Save uptime every 60s and on page close
-    setInterval(_saveUptime, 60_000);
-    window.addEventListener('visibilitychange', () => { if (document.hidden) _saveUptime(); });
-    window.addEventListener('pagehide', _saveUptime);
+    // Save uptime + position every 60s and on page close
+    setInterval(() => { _saveUptime(); Persist.savePosition(); }, 60_000);
+    window.addEventListener('visibilitychange', () => { if (document.hidden) { _saveUptime(); Persist.savePosition(); } });
+    window.addEventListener('pagehide', () => { _saveUptime(); Persist.savePosition(); });
 
     // Returning users get a pace boost so events catch up after absence
     _paceAutoInitial = localStorage.getItem('hamster_name') ? 4.0 : 1.0;

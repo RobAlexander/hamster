@@ -49,6 +49,15 @@ Everything lives in one `.html` file. External libraries (e.g. Three.js) may be 
 - `hamster_name` — user's name (prompted on first run)
 - `hamster_first_run` — ISO timestamp of first run
 - `hamster_milestones` — JSON array of triggered milestone IDs
+- `hamster_food` — selected food type
+- `hamster_total_uptime` — cumulative seconds the app has been open
+- `hamster_floor_food` — JSON array of `{x, z}` floor food positions
+- `hamster_stats` — JSON object: feedCount, lotionCount, substanceCount, poopPickedUp
+- `hamster_poop` — JSON array of `{x, z, spawnedAt}` poop pellet positions
+- `hamster_damage` — JSON array of `{x, z, rz, born}` floor scratch mark positions
+- `hamster_pos` — JSON `{x, z, ry}` hamster position and facing direction
+
+**All new persistent state must be added here and wired up with `_save()` / `loadSaved()` calls. After every code change, check: does any new state need saving? Does the `clear` command (dev console + settings menu) include the new key?**
 
 ## Implementation Phases
 
