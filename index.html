@@ -2077,6 +2077,28 @@ I find myself increasingly concerned about the developments I have been observin
         }
       }
     },
+
+    handleClick(clientX, clientY) {
+      if (!this.marks.length) return false;
+      const r = new THREE.Raycaster();
+      r.setFromCamera(_screenToNDC(clientX, clientY), camera);
+      // Widen threshold slightly — the decals are flat and easy to miss
+      r.params.Mesh = { threshold: 0.08 };
+      const hits = r.intersectObjects(this.marks.map(m => m.mesh), false);
+      if (!hits.length) return false;
+      const _p = arr => arr[Math.floor(Math.random() * arr.length)];
+      Speech.say(_p([
+        `I will not be telling you what I was doing there.`,
+        `That area is not your concern. Please move along.`,
+        `I cannot discuss the nature of that excavation at this time.`,
+        `What was done there was done for reasons. I will not elaborate.`,
+        `That is a private matter. I would ask you not to inspect it further.`,
+        `I was looking for something. I will not say what. I will not say whether I found it.`,
+        `The purpose of that work is confidential. I trust you understand.`,
+        `Do not ask about that. You would not want to know. I am serious.`,
+      ]));
+      return true;
+    },
   };
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2958,6 +2980,7 @@ I find myself increasingly concerned about the developments I have been observin
     renderer.domElement.addEventListener('click', (e) => {
       if (ItemPickup._droppedThisCycle) return;
       if (GiftSystem.handleClick(e.clientX, e.clientY)) return;
+      if (FloorDamage.handleClick(e.clientX, e.clientY)) return;
       if (SM.current === STATES.PLAY_DEAD && raycastHamster(e.clientX, e.clientY)) {
         wobbleActive = true;
         wobbleT      = 0;
