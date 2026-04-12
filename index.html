@@ -299,6 +299,7 @@
     PLAY_DEAD: 'play_dead', POOPING: 'pooping',
     STUDYING_BUG: 'studying_bug', EATING_BUG: 'eating_bug',
     LOTION: 'lotion', SUBSTANCE: 'substance',
+    DIGGING: 'digging', GIFT_OFFERING: 'gift_offering',
   });
 
   const FOOD_ICONS = {
@@ -492,6 +493,38 @@
       case STATES.NAP:
         eyeTrackingEnabled = false;
         break;
+
+      case STATES.DIGGING:
+        eyeTrackingEnabled = false;
+        SM.data.nextScratch = 0.5;
+        if (Math.random() < 0.5) {
+          setTimeout(() => {
+            const _p = arr => arr[Math.floor(Math.random() * arr.length)];
+            Speech.say(_p([
+              `I am doing some excavation work. Please do not disturb me.`,
+              `I am digging. It is necessary. Do not ask why.`,
+              `This floor needs attention. I am attending to it.`,
+              `I have discovered something of interest down here.`,
+              `The floor in this area is not up to standard. I am addressing it.`,
+            ]));
+          }, 1200);
+        }
+        break;
+
+      case STATES.GIFT_OFFERING:
+        eyeTrackingEnabled = false;
+        GiftSystem.spawn();
+        setTimeout(() => {
+          const _p = arr => arr[Math.floor(Math.random() * arr.length)];
+          Speech.say(_p([
+            `I have something for you. It is there. You should take it.`,
+            `I found this and I thought of you. Please take it.`,
+            `I am offering you a gift. Please do not make this awkward.`,
+            `Here. I have kept this for you. Take it when you are ready.`,
+            `I wish to give you something. It is on the floor. Take it.`,
+          ]));
+        }, 800);
+        break;
     }
     Speech.sayForState(state);
   }
@@ -551,6 +584,19 @@
         hamster.eyeL.scale.y = 1;
         hamster.eyeR.scale.y = 1;
         hamster.head.position.set(0, 0.80, 0.38);
+        break;
+
+      case STATES.DIGGING:
+        eyeTrackingEnabled = true;
+        hamster.head.rotation.x = 0;
+        hamster.head.position.set(0, 0.80, 0.38);
+        hamster.legFL.rotation.x = 0;
+        hamster.legFR.rotation.x = 0;
+        break;
+
+      case STATES.GIFT_OFFERING:
+        eyeTrackingEnabled = true;
+        GiftSystem.remove();
         break;
 
       case STATES.POOPING:
@@ -818,6 +864,63 @@
         // No timeout — only substance delivery ends this state
         break;
       }
+
+      case STATES.DIGGING: {
+        isWalking = false;
+        // Front paws scratch rapidly, head bobs down
+        const scrPhase = t * 12 * Math.PI * 2;
+        hamster.legFL.rotation.x =  Math.sin(scrPhase) * 0.75;
+        hamster.legFR.rotation.x = -Math.sin(scrPhase) * 0.75;
+        hamster.head.rotation.x  =  Math.abs(Math.sin(scrPhase * 0.5)) * 0.38;
+        hamster.head.position.z  =  0.38 + Math.abs(Math.sin(scrPhase * 0.5)) * 0.09;
+        // Periodic scratch sounds and floor damage marks
+        if (t > SM.data.nextScratch) {
+          SM.data.nextScratch = t + 0.28 + Math.random() * 0.38;
+          Sounds.dig();
+          const fwd = new THREE.Vector3(0, 0, 0.55).applyQuaternion(hamster.group.quaternion);
+          FloorDamage.spawn(hamster.group.position.clone().add(fwd));
+        }
+        if (t > SM.data.duration) SM.transition(STATES.IDLE);
+        break;
+      }
+
+      case STATES.GIFT_OFFERING: {
+        isWalking = false;
+        if (GiftSystem._mesh) {
+          GiftSystem._mesh.rotation.y += delta * 0.9;
+          GiftSystem._mesh.position.y  = 0.13 + Math.sin(t * 2.2) * 0.025;
+        }
+        hamster.head.rotation.y = THREE.MathUtils.lerp(hamster.head.rotation.y, 0, 0.04);
+        if (!SM.data.nagSent && t > 18) {
+          SM.data.nagSent = true;
+          const _p = arr => arr[Math.floor(Math.random() * arr.length)];
+          Speech.say(_p([
+            `I am still waiting for you to take it.`,
+            `It is right there. You have not taken it yet.`,
+            `I selected that for you specifically. Please take it.`,
+          ]));
+        }
+        if (!SM.data.annoyedSent && t > 38) {
+          SM.data.annoyedSent = true;
+          const _p = arr => arr[Math.floor(Math.random() * arr.length)];
+          Speech.say(_p([
+            `I am beginning to feel quite insulted by this.`,
+            `You have not taken my gift. I find this very rude indeed.`,
+            `I am losing patience with this situation considerably.`,
+          ]));
+        }
+        if (t > 68) {
+          GiftSystem.remove();
+          const _p = arr => arr[Math.floor(Math.random() * arr.length)];
+          Speech.say(_p([
+            `Fine. I am taking it back. You had your chance.`,
+            `The offer has expired. I will not make another one. For a while.`,
+            `You did not take it. I have noted this. It will not be forgotten.`,
+          ]));
+          SM.transition(STATES.IDLE);
+        }
+        break;
+      }
     }
   }
 
@@ -957,6 +1060,23 @@
         `The traps I have set are for intruders. You are not an intruder. Probably.`,
         `My contacts in the police force are aware of this address. That is all I will say.`,
       ]));
+    }, { recurring: true });
+
+    // Digging (every 45–90 game minutes)
+    Scheduler.schedule('digging', 0.75, 1.5, () => {
+      if (blocked() || SM.current !== STATES.IDLE) return;
+      SM.transition(STATES.DIGGING, { duration: 3.5 + Math.random() * 5 });
+    }, { recurring: true });
+
+    // Gift offering (every 8–18 game hours)
+    Scheduler.schedule('gift', 8, 18, () => {
+      if (blocked() || SM.current !== STATES.IDLE) return;
+      SM.transition(STATES.GIFT_OFFERING);
+    }, { recurring: true });
+
+    // Size change (every 20–50 game minutes)
+    Scheduler.schedule('size_change', 0.33, 0.83, () => {
+      SizeChange.trigger();
     }, { recurring: true });
 
     // Milestone checks every 3 real minutes
@@ -1451,6 +1571,77 @@ I find myself increasingly concerned about the developments I have been observin
       setTimeout(() => this.startGrowlLoop(), (1800 + Math.random() * 2400));
     },
 
+    // Short sharp bite snap when mouse gets too close
+    snap() {
+      const ctx = this._ctx();
+      if (!ctx) return;
+      const t   = ctx.currentTime;
+      const dur = 0.07;
+      const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+      const d   = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/d.length, 2.5);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const hp  = ctx.createBiquadFilter();
+      hp.type   = 'highpass'; hp.frequency.value = 1600;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.5, t);
+      gain.gain.linearRampToValueAtTime(0, t + dur);
+      src.connect(hp); hp.connect(gain); gain.connect(ctx.destination);
+      src.start(t);
+    },
+
+    // Weird ascending/descending pitch warp when size changes
+    resize(dir) {
+      const ctx = this._ctx();
+      if (!ctx) return;
+      const t   = ctx.currentTime;
+      const dur = 0.9;
+      const osc = ctx.createOscillator();
+      osc.type  = 'sawtooth';
+      osc.frequency.setValueAtTime(dir === 'up' ? 110 : 660, t);
+      osc.frequency.exponentialRampToValueAtTime(dir === 'up' ? 660 : 110, t + dur * 0.75);
+      const lfo  = ctx.createOscillator();
+      lfo.frequency.value = 16;
+      const lfoG = ctx.createGain(); lfoG.gain.value = 55;
+      lfo.connect(lfoG); lfoG.connect(osc.frequency);
+      const wave = ctx.createWaveShaper();
+      const curve = new Float32Array(256);
+      for (let i = 0; i < 256; i++) { const x = i*2/255-1; curve[i] = (Math.PI+180)*x/(Math.PI+180*Math.abs(x)); }
+      wave.curve = curve;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.15, t + 0.04);
+      gain.gain.setValueAtTime(0.15, t + dur * 0.65);
+      gain.gain.linearRampToValueAtTime(0, t + dur);
+      osc.connect(wave); wave.connect(gain); gain.connect(ctx.destination);
+      lfo.start(t); lfo.stop(t + dur);
+      osc.start(t); osc.stop(t + dur);
+    },
+
+    // Scratchy scraping sound during digging
+    dig() {
+      const ctx = this._ctx();
+      if (!ctx) return;
+      const t   = ctx.currentTime;
+      const dur = 0.32 + Math.random() * 0.18;
+      const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * dur), ctx.sampleRate);
+      const d   = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random()*2-1;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const bp  = ctx.createBiquadFilter();
+      bp.type   = 'bandpass'; bp.Q.value = 2.5;
+      bp.frequency.setValueAtTime(900 + Math.random()*300, t);
+      bp.frequency.linearRampToValueAtTime(280, t + dur);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0, t);
+      gain.gain.linearRampToValueAtTime(0.18, t + 0.02);
+      gain.gain.linearRampToValueAtTime(0, t + dur);
+      src.connect(bp); bp.connect(gain); gain.connect(ctx.destination);
+      src.start(t);
+    },
+
     // Happy appreciative chirps when eating from the food pile
     eat() {
       const ctx = this._ctx();
@@ -1703,6 +1894,266 @@ I find myself increasingly concerned about the developments I have been observin
           this.bugs.splice(i, 1);
         }
       }
+    },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 7.2 — Bite System (snap at nearby cursor)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const BiteSystem = {
+    _active:   false,
+    _t:        0,
+    _cooldown: 0,
+
+    update(delta) {
+      const BITE_STATES = [STATES.IDLE, STATES.LOOKING, STATES.HUNGRY];
+      if (!BITE_STATES.includes(SM.current)) return;
+
+      this._cooldown = Math.max(0, this._cooldown - delta);
+
+      if (this._active) {
+        this._t += delta;
+        const LUNGE = 0.075, TOTAL = 0.22;
+        if (this._t < LUNGE) {
+          const p = this._t / LUNGE;
+          hamster.head.position.z = 0.38 + p * 0.30;
+          hamster.head.rotation.x = -p * 0.42;
+        } else if (this._t < TOTAL) {
+          const p = (this._t - LUNGE) / (TOTAL - LUNGE);
+          hamster.head.position.z = 0.38 + (1 - p) * 0.30;
+          hamster.head.rotation.x = -(1 - p) * 0.42;
+        } else {
+          hamster.head.position.z = 0.38;
+          hamster.head.rotation.x = 0;
+          this._active   = false;
+          this._t        = 0;
+          this._cooldown = 5 + Math.random() * 8;
+        }
+        return;
+      }
+
+      if (this._cooldown > 0) return;
+
+      const mouseWorld = getMouseWorld();
+      if (!mouseWorld) return;
+      const hp = hamster.group.position;
+      const dx = mouseWorld.x - hp.x, dz = mouseWorld.z - hp.z;
+      if (dx*dx + dz*dz > 1.1*1.1) return;
+
+      if (Math.random() < delta * 0.18) {
+        this._active = true;
+        this._t      = 0;
+        Sounds.snap();
+        if (Math.random() < 0.45) {
+          setTimeout(() => {
+            const _p = arr => arr[Math.floor(Math.random() * arr.length)];
+            Speech.say(_p([
+              `Do not bring your hand so close. I am warning you.`,
+              `That was a demonstration. Next time I will not miss.`,
+              `Personal space. I require it.`,
+              `I bit. Yes. That was intentional.`,
+              `I am well within my rights to bite.`,
+              `Consider that a formal warning.`,
+            ]));
+          }, 350);
+        }
+      }
+    },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 7.4 — Size Change (occasional involuntary scaling)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  function _easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+  const SizeChange = {
+    _active:       false,
+    _phase:        'idle',
+    _t:            0,
+    _target:       1,
+    _holdDuration: 4,
+
+    trigger() {
+      if (this._active) return;
+      if ([STATES.SLEEPING, STATES.NAP, STATES.PLAY_DEAD].includes(SM.current)) return;
+      this._active       = true;
+      this._phase        = 'growing';
+      this._t            = 0;
+      this._holdDuration = 3 + Math.random() * 5;
+      this._target       = Math.random() < 0.5
+        ? 1.35 + Math.random() * 0.45   // grow
+        : 0.45 + Math.random() * 0.25;  // shrink
+      Sounds.resize(this._target > 1 ? 'up' : 'down');
+      if (Math.random() < 0.55) {
+        const _p  = arr => arr[Math.floor(Math.random() * arr.length)];
+        const dir = this._target > 1 ? 'larger' : 'smaller';
+        setTimeout(() => Speech.say(_p([
+          `I appear to be getting ${dir}. I am not alarmed.`,
+          `Do not be alarmed. This happens occasionally.`,
+          `I am aware of what is happening to my size. I am managing it.`,
+          `The size fluctuation is temporary. Probably.`,
+          `I have chosen not to address the size situation at this time.`,
+        ])), 550);
+      }
+    },
+
+    update(delta) {
+      if (!this._active) return;
+      this._t += delta;
+      const DUR = 0.85;
+      if (this._phase === 'growing') {
+        const s = THREE.MathUtils.lerp(1, this._target, _easeInOut(Math.min(this._t / DUR, 1)));
+        hamster.group.scale.setScalar(s);
+        if (this._t >= DUR) { this._phase = 'holding'; this._t = 0; }
+      } else if (this._phase === 'holding') {
+        if (this._t >= this._holdDuration) {
+          this._phase = 'shrinking'; this._t = 0;
+          Sounds.resize(this._target > 1 ? 'down' : 'up');
+        }
+      } else {
+        const s = THREE.MathUtils.lerp(this._target, 1, _easeInOut(Math.min(this._t / DUR, 1)));
+        hamster.group.scale.setScalar(s);
+        if (this._t >= DUR) {
+          hamster.group.scale.setScalar(1);
+          this._active = false; this._phase = 'idle';
+        }
+      }
+    },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 7.6 — Floor Damage (scratch marks that fade over time)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const FloorDamage = {
+    marks: [],
+
+    spawn(position) {
+      const cv  = document.createElement('canvas');
+      cv.width  = cv.height = 128;
+      const ctx = cv.getContext('2d');
+      ctx.clearRect(0, 0, 128, 128);
+      const n = 3 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < n; i++) {
+        const cx  = 64 + (Math.random() - 0.5) * 48;
+        const cy  = 64 + (Math.random() - 0.5) * 48;
+        const ang = (Math.random() - 0.5) * 0.9 + Math.PI / 2;
+        const len = 18 + Math.random() * 45;
+        ctx.strokeStyle = `rgba(10,4,0,${0.55 + Math.random() * 0.35})`;
+        ctx.lineWidth   = 1 + Math.random() * 2.5;
+        ctx.lineCap     = 'round';
+        ctx.beginPath();
+        ctx.moveTo(cx - Math.cos(ang)*len/2, cy - Math.sin(ang)*len/2);
+        ctx.lineTo(cx + Math.cos(ang)*len/2, cy + Math.sin(ang)*len/2);
+        ctx.stroke();
+      }
+      const tex = new THREE.CanvasTexture(cv);
+      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.72, depthWrite: false });
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 0.58), mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.rotation.z = Math.random() * Math.PI * 2;
+      mesh.position.set(
+        THREE.MathUtils.clamp(position.x + (Math.random()-0.5)*0.25, -3.5, 3.5),
+        0.001,
+        THREE.MathUtils.clamp(position.z + (Math.random()-0.5)*0.25, -2.5, 2.5),
+      );
+      scene.add(mesh);
+      this.marks.push({ mesh, mat, born: Date.now() });
+    },
+
+    update() {
+      const FADE_START = 25_000;   // start fading after 25 real seconds
+      const FADE_DUR   = 100_000;  // fade over ~100 real seconds
+      const now = Date.now();
+      for (let i = this.marks.length - 1; i >= 0; i--) {
+        const m   = this.marks[i];
+        const age = now - m.born;
+        if (age > FADE_START) {
+          m.mat.opacity = 0.72 * Math.max(0, 1 - (age - FADE_START) / FADE_DUR);
+          if (m.mat.opacity <= 0) {
+            scene.remove(m.mesh);
+            this.marks.splice(i, 1);
+          }
+        }
+      }
+    },
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SECTION 7.8 — Gift System (garish rock offerings)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  const GiftSystem = {
+    _mesh: null,
+
+    spawn() {
+      this.remove();
+      const GARISH = [0xff00ff, 0x00ff88, 0xff6600, 0x00ccff, 0xffff00,
+                      0xff0066, 0xaaff00, 0xcc00ff, 0xff3300, 0x00aaff];
+      const mat = new THREE.MeshStandardMaterial({
+        color: GARISH[Math.floor(Math.random() * GARISH.length)],
+        roughness: 0.22, metalness: 0.12,
+      });
+      const g = new THREE.Group();
+
+      // Main body — distorted icosahedron
+      const geo = new THREE.IcosahedronGeometry(0.12, 1);
+      const pos = geo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        pos.setXYZ(i,
+          pos.getX(i) * (0.55 + Math.random() * 0.95),
+          pos.getY(i) * (0.45 + Math.random() * 1.15),
+          pos.getZ(i) * (0.55 + Math.random() * 0.95),
+        );
+      }
+      geo.computeVertexNormals();
+      g.add(new THREE.Mesh(geo, mat));
+
+      // Lumps
+      const lumps = 2 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < lumps; i++) {
+        const lg = new THREE.SphereGeometry(0.03 + Math.random() * 0.06, 5, 4);
+        const lm = new THREE.Mesh(lg, mat);
+        const a  = Math.random() * Math.PI * 2;
+        const el = (Math.random() - 0.5) * Math.PI;
+        const r  = 0.07 + Math.random() * 0.07;
+        lm.position.set(Math.cos(a)*Math.cos(el)*r, Math.sin(el)*r*0.7, Math.sin(a)*Math.cos(el)*r);
+        g.add(lm);
+      }
+
+      const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(hamster.group.quaternion);
+      const gp  = hamster.group.position.clone().addScaledVector(fwd, 0.62);
+      gp.y = 0.13;
+      g.position.copy(gp);
+      g.traverse(o => { if (o.isMesh) o.castShadow = true; });
+      scene.add(g);
+      this._mesh = g;
+    },
+
+    remove() {
+      if (this._mesh) { scene.remove(this._mesh); this._mesh = null; }
+    },
+
+    handleClick(clientX, clientY) {
+      if (!this._mesh || SM.current !== STATES.GIFT_OFFERING) return false;
+      const r = new THREE.Raycaster();
+      r.setFromCamera(_screenToNDC(clientX, clientY), camera);
+      const meshes = [];
+      this._mesh.traverse(o => { if (o.isMesh) meshes.push(o); });
+      if (!r.intersectObjects(meshes, false).length) return false;
+      this.remove();
+      const _p = arr => arr[Math.floor(Math.random() * arr.length)];
+      Speech.say(_p([
+        `You have taken it. Good. It is yours now. Do not lose it.`,
+        `I thought you would want it. I have had it for some time.`,
+        `It is a fine specimen. You should feel honoured.`,
+        `Good. Now we have an understanding. You are welcome.`,
+        `I collected that myself. It took considerable effort.`,
+      ]));
+      SM.transition(STATES.IDLE);
+      return true;
     },
   };
 
@@ -2438,8 +2889,11 @@ I find myself increasingly concerned about the developments I have been observin
     Scheduler.tick();
     tickAnimation(totalTime, delta);
     updateEyeTracking(delta);
+    BiteSystem.update(delta);
+    SizeChange.update(delta);
     PoopSystem.update(delta);
     BugSystem.update(delta);
+    FloorDamage.update();
 
     renderer.render(scene, camera);
   }
@@ -2502,9 +2956,10 @@ I find myself increasingly concerned about the developments I have been observin
       if (e.touches[0]) ItemPickup.tryStart(e.touches[0].clientX, e.touches[0].clientY);
     }, { passive: true });
 
-    // Canvas: click for play-dead wobble (guarded so pickup drops don't trigger it)
+    // Canvas: click for gift acceptance and play-dead wobble
     renderer.domElement.addEventListener('click', (e) => {
       if (ItemPickup._droppedThisCycle) return;
+      if (GiftSystem.handleClick(e.clientX, e.clientY)) return;
       if (SM.current === STATES.PLAY_DEAD && raycastHamster(e.clientX, e.clientY)) {
         wobbleActive = true;
         wobbleT      = 0;
@@ -2602,6 +3057,7 @@ I find myself increasingly concerned about the developments I have been observin
           this.info('── states ──────────────────────────────────────────');
           this.info('  idle  wander  out  look  hungry  lotion  substance');
           this.info('  worried  sleep [min]  nap  dead  poop  eat  eating_bug');
+          this.info('  dig  gift  size');
           this.info('── utils ───────────────────────────────────────────');
           this.info('  bug         spawn a bug');
           this.info('  legs        grow legs on all poop pellets now');
@@ -2640,6 +3096,10 @@ I find myself increasingly concerned about the developments I have been observin
           SM.transition(STATES.EATING_BUG, bug ? { bug } : {});
           this.ok('→ eating bug' + (bug ? '' : ' (no bugs present)'));
         },
+
+        dig:  () => { SM.transition(STATES.DIGGING, { duration: 4 + Math.random() * 4 }); this.ok('→ digging'); },
+        gift: () => { SM.transition(STATES.GIFT_OFFERING); this.ok('→ gift offering — click the rock to accept it'); },
+        size: () => { SizeChange.trigger(); this.ok('→ size change triggered'); },
 
         bug: () => {
           BugSystem.spawnBug();
