@@ -1933,11 +1933,16 @@ I find myself increasingly concerned about the developments I have been observin
 
       if (this._cooldown > 0) return;
 
-      const mouseWorld = getMouseWorld();
-      if (!mouseWorld) return;
-      const hp = hamster.group.position;
-      const dx = mouseWorld.x - hp.x, dz = mouseWorld.z - hp.z;
-      if (dx*dx + dz*dz > 1.1*1.1) return;
+      // Test cursor ray against a sphere around the hamster's head in 3D
+      const headWP = new THREE.Vector3();
+      hamster.head.getWorldPosition(headWP);
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(mouseNDC, camera);
+      const toHead = headWP.clone().sub(ray.ray.origin);
+      const tca    = toHead.dot(ray.ray.direction);
+      const d2     = toHead.dot(toHead) - tca * tca;
+      const RADIUS = 0.55;
+      if (d2 > RADIUS * RADIUS) return;
 
       if (Math.random() < delta * 0.18) {
         this._active = true;
