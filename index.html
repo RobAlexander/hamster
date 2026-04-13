@@ -2549,19 +2549,24 @@ I find myself increasingly concerned about the developments I have been observin
       item.mesh.visible = false;
       if (item.kind === 'bug') item.ref.state = 'held';
 
-      // Emoji ghost follows cursor
-      const icons = {
-        poop: '💩',
-        food: FOOD_ICONS[appState.foodType] || '🌻',
-        bug:  '🦗',
-      };
+      // Ghost follows cursor
       this.ghost = document.createElement('div');
       Object.assign(this.ghost.style, {
         position: 'fixed', pointerEvents: 'none', zIndex: '1001',
         transform: 'translate(-50%,-60%)',
         fontSize: '26px', userSelect: 'none',
       });
-      this.ghost.textContent = icons[item.kind];
+      if (item.kind === 'poop') {
+        Object.assign(this.ghost.style, {
+          width: '22px', height: '22px',
+          borderRadius: '50%',
+          background: '#6b3a1f',
+          fontSize: '0',
+        });
+      } else {
+        const icons = { food: FOOD_ICONS[appState.foodType] || '🌻', bug: '🦗' };
+        this.ghost.textContent = icons[item.kind];
+      }
       document.body.appendChild(this.ghost);
       this._moveGhost(clientX, clientY);
 

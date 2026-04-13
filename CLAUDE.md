@@ -29,15 +29,15 @@ Everything lives in one `.html` file. External libraries (e.g. Three.js) may be 
 | **Time Tracker** | Calculates elapsed time since first run for milestone speech events |
 
 ### Behavior state machine (key states)
-- `idle` — default, eye-tracking mouse sometimes
-- `hungry` — demands food; food drop triggers eating animation
+- `idle` — default, eye-tracking mouse sometimes; probabilistically notices floor food (~1/6 chance/sec) and walks to eat it
+- `hungry` — demands food; food drop triggers eating animation; does **not** seek floor food autonomously
 - `lotion` — requests lotion ~2x/day; only giveable when asked
 - `substance` — demands "the substance"; sleeps for extended period after
 - `looking` — stares at user, triggered by double-click or randomly
 - `worried` — "presence" detected; fast/jerky movement, growling sounds, looks around room
 - `wandering` — exits frame, returns
 - `dead` — lies rigid on back; click wobbles it
-- `pooping` — deposits pellets; pellets grow legs if left >1 hour; click to clean
+- `pooping` — deposits pellets; pellets grow legs if left >1 hour; click to clean (cursor ghost = brown circle, not emoji)
 
 ### Speech generation
 - Markov chain trained on inline corpus of hamster-appropriate phrases
