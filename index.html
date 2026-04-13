@@ -2399,26 +2399,46 @@ I find myself increasingly concerned about the developments I have been observin
   // SECTION 8.5 — Floor Food (food placed on the floor from pile)
   // ═══════════════════════════════════════════════════════════════════════════
 
-  const FloorFood = {
-    items: [],
-    _geo:  null,
-    _mat:  null,
+  // Per-food-type 3D appearance: color, geometry, scale, and floor y-offset
+  const FOOD_3D = {
+    'sunflower seeds':            { color: 0x7a6535, geo: () => new THREE.SphereGeometry(0.065, 6, 4), sx: 0.45, sy: 1.0, sz: 0.65, y: 0.06 },
+    'millet':                     { color: 0xd4c47a, geo: () => new THREE.SphereGeometry(0.045, 6, 4), sx: 1,    sy: 1,   sz: 1,    y: 0.045 },
+    'dried cranberries':          { color: 0x7a1515, geo: () => new THREE.SphereGeometry(0.065, 7, 5), sx: 1,    sy: 0.7, sz: 1,    y: 0.046 },
+    'a small walnut':             { color: 0x6b3a1f, geo: () => new THREE.SphereGeometry(0.088, 7, 5), sx: 1,    sy: 0.8, sz: 1,    y: 0.07 },
+    'pellets of uncertain origin':{ color: 0x1a1a1a, geo: () => new THREE.BoxGeometry(0.075, 0.06, 0.075), sx: 1, sy: 1, sz: 1,   y: 0.03 },
+  };
 
-    _ensure() {
-      if (!this._geo) this._geo = new THREE.SphereGeometry(0.06, 6, 4);
-      if (!this._mat) this._mat = new THREE.MeshLambertMaterial({ color: 0xd4a847 });
+  const FloorFood = {
+    items:  [],
+    _cache: {},   // foodType → { geo, mat }
+
+    _getApp(foodType) {
+      if (this._cache[foodType]) return this._cache[foodType];
+      const cfg = FOOD_3D[foodType] || { color: 0xd4a847, geo: () => new THREE.SphereGeometry(0.06, 6, 4), sx: 1, sy: 1, sz: 1, y: 0.06 };
+      this._cache[foodType] = { geo: cfg.geo(), mat: new THREE.MeshLambertMaterial({ color: cfg.color }), cfg };
+      return this._cache[foodType];
+    },
+
+    _makeMesh(foodType) {
+      const { geo, mat, cfg } = this._getApp(foodType);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.scale.set(cfg.sx, cfg.sy, cfg.sz);
+      mesh.rotation.y = Math.random() * Math.PI * 2;
+      // Seeds tumble onto their side naturally
+      if (foodType === 'sunflower seeds') mesh.rotation.z = (Math.random() - 0.5) * 0.6;
+      return { mesh, y: cfg.y };
     },
 
     place(worldPos) {
-      this._ensure();
-      const mesh = new THREE.Mesh(this._geo, this._mat);
+      const foodType = appState.foodType;
+      const { mesh, y } = this._makeMesh(foodType);
       mesh.position.set(
         THREE.MathUtils.clamp(worldPos.x, -2.8, 2.8),
-        0.06,
+        y,
         THREE.MathUtils.clamp(worldPos.z, -1.5, 1.5),
       );
       scene.add(mesh);
-      this.items.push({ mesh });
+      this.items.push({ mesh, foodType });
       this._save();
     },
 
@@ -2441,19 +2461,19 @@ I find myself increasingly concerned about the developments I have been observin
     },
 
     _save() {
-      const data = this.items.map(f => ({ x: f.mesh.position.x, z: f.mesh.position.z }));
+      const data = this.items.map(f => ({ x: f.mesh.position.x, z: f.mesh.position.z, type: f.foodType }));
       localStorage.setItem('hamster_floor_food', JSON.stringify(data));
     },
 
     loadSaved() {
-      this._ensure();
       try {
         const data = JSON.parse(localStorage.getItem('hamster_floor_food') || '[]');
-        for (const { x, z } of data) {
-          const mesh = new THREE.Mesh(this._geo, this._mat);
-          mesh.position.set(x, 0.06, z);
+        for (const { x, z, type } of data) {
+          const foodType = (type && FOOD_ICONS[type]) ? type : appState.foodType;
+          const { mesh, y } = this._makeMesh(foodType);
+          mesh.position.set(x, y, z);
           scene.add(mesh);
-          this.items.push({ mesh });
+          this.items.push({ mesh, foodType });
         }
       } catch (e) { /* ignore malformed data */ }
     },
